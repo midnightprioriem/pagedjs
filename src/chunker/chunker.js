@@ -89,7 +89,7 @@ const TEMPLATE = `
  * @class
  */
 class Chunker {
-	constructor(content, renderTo, options) {
+	constructor(options) {
 		// this.preview = preview;
 
 		this.settings = options || {};
@@ -108,56 +108,29 @@ class Chunker {
 		this.hooks.afterPageLayout = new Hook(this);
 		this.hooks.afterRendered = new Hook(this);
 
-		this.pages = [];
-		this.total = 0;
-
-		this.q = new Queue(this);
-		this.stopped = false;
-		this.rendered = false;
-
-		this.content = content;
-
-		this.charsPerBreak = [];
-		this.maxChars;
-
-		if (content) {
-			this.flow(content, renderTo);
-		}
-	}
-
-	setup(renderTo) {
-		this.pagesArea = document.createElement("div");
-		this.pagesArea.classList.add("pagedjs_pages");
-
-		if (renderTo) {
-			renderTo.appendChild(this.pagesArea);
-		} else {
-			document.querySelector("body").appendChild(this.pagesArea);
-		}
-
 		this.pageTemplate = document.createElement("template");
 		this.pageTemplate.innerHTML = TEMPLATE;
-
 	}
 
-	async flow(content, renderTo) {
-		let parsed;
+	setup() {
+		this.pages = [];
+		this._total = 0;
+		this.pagesArea = document.createElement("div");
+		this.pagesArea.classList.add("pagedjs_pages");
+	}
 
+	async flow(content, renderTo=document.body) {
 		await this.hooks.beforeParsed.trigger(content, this);
 
-		parsed = new ContentParser(content);
+		let parsed = new ContentParser(content);
 
 		this.hooks.filter.triggerSync(parsed);
 
 		this.source = parsed;
 		this.breakToken = undefined;
 
-		if (this.pagesArea && this.pageTemplate) {
-			this.q.clear();
-			this.removePages();
-		} else {
-			this.setup(renderTo);
-		}
+		this.setup();
+		renderTo.appendChild(this.pagesArea);
 
 		this.emit("rendering", parsed);
 
@@ -183,36 +156,14 @@ class Chunker {
 		return this;
 	}
 
-	// oversetPages() {
-	// 	let overset = [];
-	// 	for (let i = 0; i < this.pages.length; i++) {
-	// 		let page = this.pages[i];
-	// 		if (page.overset) {
-	// 			overset.push(page);
-	// 			// page.overset = false;
-	// 		}
-	// 	}
-	// 	return overset;
-	// }
-	//
-	// async handleOverset(parsed) {
-	// 	let overset = this.oversetPages();
-	// 	if (overset.length) {
-	// 		console.log("overset", overset);
-	// 		let index = this.pages.indexOf(overset[0]) + 1;
-	// 		console.log("INDEX", index);
-	//
-	// 		// Remove pages
-	// 		// this.removePages(index);
-	//
-	// 		// await this.render(parsed, overset[0].overset);
-	//
-	// 		// return this.handleOverset(parsed);
-	// 	}
-	// }
+	async reflow(content, renderTo=document.body) {
+		await this.flow(content, renderTo);
+		renderTo.innerHTML = "";
+		renderTo.appendChild(this.pagesArea);
+	}
 
-	async render(parsed, startAt) {
-		let renderer = this.layout(parsed, startAt, this.settings);
+	async render(parsed) {
+		let renderer = this.layout(parsed);
 
 		let done = false;
 		let result;
