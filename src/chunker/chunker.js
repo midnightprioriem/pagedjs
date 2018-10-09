@@ -55,7 +55,7 @@ const _requestIdleCallback = 'requestIdleCallback' in window ? requestIdleCallba
  * @class
  */
 class Chunker {
-	constructor(content, renderTo) {
+	constructor() {
 		// this.preview = preview;
 
 		this.hooks = {};
@@ -69,46 +69,32 @@ class Chunker {
 		this.hooks.afterPageLayout = new Hook(this);
 		this.hooks.afterRendered = new Hook(this);
 
-		this.pages = [];
-		this._total = 0;
-
-		this.content = content;
-
-		if (content) {
-			this.flow(content, renderTo);
-		}
-	}
-
-	setup(renderTo) {
-		this.pagesArea = document.createElement("div");
-		this.pagesArea.classList.add("pagedjs_pages");
-
-		if (renderTo) {
-			renderTo.appendChild(this.pagesArea);
-		} else {
-			document.querySelector("body").appendChild(this.pagesArea);
-		}
-
 		this.pageTemplate = document.createElement("template");
 		this.pageTemplate.innerHTML = TEMPLATE;
 	}
 
-	async flow(content, renderTo) {
-		let parsed;
+	setup() {
+		this.pages = [];
+		this._total = 0;
+		this.pagesArea = document.createElement("div");
+		this.pagesArea.classList.add("pagedjs_pages");
+	}
 
+	async flow(content, renderTo=document.body) {
 		await this.hooks.beforeParsed.trigger(content, this);
 
-		parsed = new ContentParser(content);
+		let parsed = new ContentParser(content);
 
 		this.source = parsed;
 
-		this.setup(renderTo);
+		this.setup();
+		renderTo.appendChild(this.pagesArea);
 
 		this.emit("rendering", content);
 
 		await this.hooks.afterParsed.trigger(parsed, this);
 
-		await this.render(parsed, renderTo);
+		await this.render(parsed);
 
 		await this.hooks.afterRendered.trigger(this.pages, this);
 
@@ -117,7 +103,13 @@ class Chunker {
 		return this;
 	}
 
-	async render(parsed, renderTo) {
+	async reflow(content, renderTo=document.body) {
+		await this.flow(content, renderTo);
+		renderTo.innerHTML = "";
+		renderTo.appendChild(this.pagesArea);
+	}
+
+	async render(parsed) {
 		let renderer = this.layout(parsed);
 
 		let done = false;
