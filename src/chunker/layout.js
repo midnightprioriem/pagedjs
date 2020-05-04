@@ -110,7 +110,7 @@ class Layout {
 			// Should the Node be a shallow or deep clone
 			let shallow = isContainer(node);
 
-			let rendered = this.append(node, wrapper, breakToken, shallow);
+			let rendered = await this.append(node, wrapper, breakToken, shallow);
 
 			length += rendered.textContent.length;
 
@@ -179,7 +179,7 @@ class Layout {
 		return start;
 	}
 
-	append(node, dest, breakToken, shallow = true, rebuild = true) {
+	async append(node, dest, breakToken, shallow = true, rebuild = true) {
 
 		let clone = cloneNode(node, !shallow);
 
@@ -210,7 +210,7 @@ class Layout {
 			dest.appendChild(clone);
 		}
 
-		let nodeHooks = this.hooks.renderNode.triggerSync(clone, node);
+		let nodeHooks = await this.hooks.renderNode.trigger(clone, node);
 		nodeHooks.forEach((newNode) => {
 			if (typeof newNode != "undefined") {
 				clone = newNode;
