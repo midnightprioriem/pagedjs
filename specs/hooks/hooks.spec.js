@@ -3,7 +3,7 @@ const TIMEOUT = 10000; // Some book might take longer than this to renderer
 describe("hooks", () => {
 	let page;
 	beforeAll(async () => {
-		page = await loadPage("default/default.html");
+		page = await loadPage("hooks/hooks.html");
 		return page.rendered;
 	}, TIMEOUT);
 
@@ -16,6 +16,7 @@ describe("hooks", () => {
 	it("should render text", async () => {
 		let text = await page.evaluate(() => document.body.textContent);
 		expect(text).toContain("Chapter 1. Loomings.");
+		expect(text).toContain("Node through hooks.");
 	});
 
 	it("should render 1 page", async () => {
