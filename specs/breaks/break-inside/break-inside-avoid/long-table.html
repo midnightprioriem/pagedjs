@@ -6,15 +6,30 @@
 	<title>
 		Long table
 	</title>
-	<script src="../../../dist/paged.polyfill.js"></script>
+	<script src="../../../../dist/paged.polyfill.js"></script>
 	<style>
 		@page {
-			size: 140mm 150mm;
+			size: 140mm 120mm;
 			margin: 0px;
 			padding: 0px;
 		}
+
 		table {
 			break-inside: avoid;
+		}
+
+		@media screen {
+
+			body {
+				background-color: whitesmoke;
+			}
+
+			.pagedjs_page {
+				background-color: white;
+				box-shadow: 0 0 0 1px #bfbfbf;
+				margin-top: 10mm;
+				margin-left: 10mm;
+			}
 		}
 	</style>
 </head>
@@ -125,22 +140,6 @@
 		<tr>
 			<td>1</td>
 			<td>v</td>
-		</tr>
-		<tr>
-			<td>1</td>
-			<td>w</td>
-		</tr>
-		<tr>
-			<td>1</td>
-			<td>x</td>
-		</tr>
-		<tr>
-			<td>1</td>
-			<td>y</td>
-		</tr>
-		<tr>
-			<td>1</td>
-			<td>z</td>
 		</tr>
 		</tbody>
 	</table>

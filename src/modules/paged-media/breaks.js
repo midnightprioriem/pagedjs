@@ -39,7 +39,9 @@ class Breaks extends Handler {
 		if (property === "break-before" ||
 				property === "break-after" ||
 				property === "page-break-before" ||
-				property === "page-break-after"
+				property === "page-break-after" ||
+				property === "page-break-inside" ||
+				property === "break-inside"
 		) {
 			let child = declaration.value.children.first();
 			let value = child.name;
@@ -49,6 +51,8 @@ class Breaks extends Handler {
 				property = "break-before";
 			} else if (property === "page-break-after") {
 				property = "break-after";
+			} else if (property === "page-break-inside") {
+				property = "break-inside";
 			}
 
 			let breaker = {
@@ -66,7 +70,9 @@ class Breaks extends Handler {
 			});
 
 			// Remove from CSS -- handle right / left in module
-			dList.remove(dItem);
+			if (property !== "break-inside") {
+				dList.remove(dItem);
+			}
 		}
 	}
 

@@ -293,29 +293,6 @@ class Layout {
 		});
 	}
 
-	avoidBreakInside(node, limiter) {
-		let breakNode;
-
-		if (node === limiter) {
-			return;
-		}
-
-		while (node.parentNode) {
-			node = node.parentNode;
-
-			if (node === limiter) {
-				break;
-			}
-
-			if (window.getComputedStyle(node)["break-inside"] === "avoid") {
-				breakNode = node;
-				break;
-			}
-
-		}
-		return breakNode;
-	}
-
 	createBreakToken(overflow, rendered, source) {
 		let container = overflow.startContainer;
 		let offset = overflow.startOffset;

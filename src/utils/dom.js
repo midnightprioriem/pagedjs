@@ -601,6 +601,31 @@ export function previousSignificantNode(sib) {
 	return null;
 }
 
+export function breakInsideAvoidParentNode(node) {
+	while ((node = node.parentNode)) {
+		if (node && node.dataset && node.dataset.breakInside === "avoid") {
+			return node;
+		}
+	}
+	return null;
+}
+
+export function breakInsideAvoidNode(node) {
+	if (node && node.dataset && node.dataset.breakInside === "avoid") {
+		return node;
+	}
+	let children = node.children;
+	if (children) {
+		for (const child of children) {
+			if (child && child.dataset && child.dataset.breakInside === "avoid") {
+				return child;
+			}
+			return breakInsideAvoidNode(child);
+		}
+	}
+	return null;
+}
+
 /**
  * Version of |nextSibling| that skips nodes that are entirely
  * whitespace or comments.

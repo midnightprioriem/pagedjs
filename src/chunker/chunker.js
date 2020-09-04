@@ -3,9 +3,8 @@ import ContentParser from "./parser";
 import EventEmitter from "event-emitter";
 import Hook from "../utils/hook";
 import Queue from "../utils/queue";
-import {
-	requestIdleCallback
-} from "../utils/utils";
+import {requestIdleCallback} from "../utils/utils";
+import {breakInsideAvoidNode, breakInsideAvoidParentNode} from "../utils/dom";
 
 const MAX_PAGES = false;
 const MAX_LAYOUTS = false;
@@ -173,7 +172,6 @@ class Chunker {
 		this.emit("rendered", this.pages);
 
 
-
 		return this;
 	}
 
@@ -213,9 +211,11 @@ class Chunker {
 
 		let loops = 0;
 		while (!done) {
-			result = await this.q.enqueue(() => { return this.renderAsync(renderer); });
+			result = await this.q.enqueue(() => {
+				return this.renderAsync(renderer);
+			});
 			done = result.done;
-			if(MAX_LAYOUTS) {
+			if (MAX_LAYOUTS) {
 				loops += 1;
 				if (loops >= MAX_LAYOUTS) {
 					this.stop();
@@ -241,11 +241,11 @@ class Chunker {
 		return new Promise(resolve => {
 			requestIdleCallback(async () => {
 				if (this.stopped) {
-					return resolve({ done: true, canceled: true });
+					return resolve({done: true, canceled: true});
 				}
 				let result = await renderer.next();
 				if (this.stopped) {
-					resolve({ done: true, canceled: true });
+					resolve({done: true, canceled: true});
 				} else {
 					resolve(result);
 				}
@@ -255,13 +255,34 @@ class Chunker {
 
 	async renderAsync(renderer) {
 		if (this.stopped) {
-			return { done: true, canceled: true };
+			return {done: true, canceled: true};
 		}
 		let result = await renderer.next();
 		if (this.stopped) {
-			return { done: true, canceled: true };
+			return {done: true, canceled: true};
 		} else {
 			return result;
+		}
+	}
+
+	async handleOverruledBreakInside(node) {
+		const breakInsideNode = breakInsideAvoidNode(node);
+		if (breakInsideNode) {
+			const page = this.addPage();
+			// QUESTION: should we emit the temporary page?
+			//this.emit("page", page);
+			const newBreakToken = await page.layout(breakInsideNode, null, this.maxChars);
+			const breakInsideAvoidParent = newBreakToken && breakInsideAvoidParentNode(newBreakToken.node);
+			// we are breaking inside a "break-inside: avoid" node which mean that we cannot comply with this rule!
+			const overruleBreakInside = breakInsideAvoidParent && breakInsideAvoidParent.dataset && breakInsideNode.dataset && breakInsideNode.dataset.ref === breakInsideAvoidParent.dataset.ref;
+			if (overruleBreakInside) {
+				// we need to overrule this definition, remove "break-inside: avoid" directive and reflow the previous page
+				delete breakInsideNode.dataset.breakInside;
+				breakInsideNode.style = breakInsideNode.style + ";break-inside: auto;";
+			}
+			// remove the temporary page
+			this.removePages(this.pages.length - 1);
+			return typeof overruleBreakInside !== "undefined";
 		}
 	}
 
@@ -279,32 +300,32 @@ class Chunker {
 		}
 
 		if (node &&
-				typeof node.dataset !== "undefined" &&
-				typeof node.dataset.previousBreakAfter !== "undefined") {
+			typeof node.dataset !== "undefined" &&
+			typeof node.dataset.previousBreakAfter !== "undefined") {
 			previousBreakAfter = node.dataset.previousBreakAfter;
 		}
 
 		if (node &&
-				typeof node.dataset !== "undefined" &&
-				typeof node.dataset.breakBefore !== "undefined") {
+			typeof node.dataset !== "undefined" &&
+			typeof node.dataset.breakBefore !== "undefined") {
 			breakBefore = node.dataset.breakBefore;
 		}
 
-		if( previousBreakAfter &&
-				(previousBreakAfter === "left" || previousBreakAfter === "right") &&
-				previousBreakAfter !== currentPosition) {
+		if (previousBreakAfter &&
+			(previousBreakAfter === "left" || previousBreakAfter === "right") &&
+			previousBreakAfter !== currentPosition) {
 			page = this.addPage(true);
-		} else if( previousBreakAfter &&
-				(previousBreakAfter === "verso" || previousBreakAfter === "recto") &&
-				previousBreakAfter !== currentSide) {
+		} else if (previousBreakAfter &&
+			(previousBreakAfter === "verso" || previousBreakAfter === "recto") &&
+			previousBreakAfter !== currentSide) {
 			page = this.addPage(true);
-		} else if( breakBefore &&
-				(breakBefore === "left" || breakBefore === "right") &&
-				breakBefore !== currentPosition) {
+		} else if (breakBefore &&
+			(breakBefore === "left" || breakBefore === "right") &&
+			breakBefore !== currentPosition) {
 			page = this.addPage(true);
-		} else if( breakBefore &&
-				(breakBefore === "verso" || breakBefore === "recto") &&
-				breakBefore !== currentSide) {
+		} else if (breakBefore &&
+			(breakBefore === "verso" || breakBefore === "recto") &&
+			breakBefore !== currentSide) {
 			page = this.addPage(true);
 		}
 
@@ -317,18 +338,29 @@ class Chunker {
 		}
 	}
 
-	async *layout(content, startAt) {
+	async* layout(content, startAt) {
 		let breakToken = startAt || false;
 
+		let page;
 		while (breakToken !== undefined && (MAX_PAGES ? this.total < MAX_PAGES : true)) {
 
+			let reflowCurrentPage = false;
 			if (breakToken && breakToken.node) {
 				await this.handleBreaks(breakToken.node);
+				const overruleBreakInside = await this.handleOverruledBreakInside(breakToken.node);
+				if (overruleBreakInside) {
+					reflowCurrentPage = typeof page !== "undefined";
+					breakToken = page && page.startToken;
+				}
 			} else {
 				await this.handleBreaks(content.firstChild);
 			}
 
-			let page = this.addPage();
+			if (reflowCurrentPage) {
+				// reflow the current page because a "break" definition was overruled!
+			} else {
+				page = this.addPage();
+			}
 
 			await this.hooks.beforePageLayout.trigger(page, content, breakToken, this);
 			this.emit("page", page);
@@ -364,7 +396,7 @@ class Chunker {
 		this.maxChars = this.charsPerBreak.reduce((a, b) => a + b, 0) / (this.charsPerBreak.length);
 	}
 
-	removePages(fromIndex=0) {
+	removePages(fromIndex = 0) {
 
 		if (fromIndex >= this.pages.length) {
 			return;
@@ -446,6 +478,7 @@ class Chunker {
 
 		return page;
 	}
+
 	/*
 	insertPage(index, blank) {
 		let lastPage = this.pages[index];
@@ -484,7 +517,6 @@ class Chunker {
 		return page;
 	}
 	*/
-
 
 
 	loadFonts() {
