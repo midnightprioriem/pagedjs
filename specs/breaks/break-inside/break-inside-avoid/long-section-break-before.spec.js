@@ -1,9 +1,9 @@
 const TIMEOUT = 10000;
 
-describe("long nested section", () => {
+describe("long section break before", () => {
 	let page;
 	beforeAll(async () => {
-		page = await loadPage("breaks/break-inside/break-inside-avoid/long-nested-section.html");
+		page = await loadPage("breaks/break-inside/break-inside-avoid/long-section-break-before.html");
 		return page.rendered;
 	}, TIMEOUT);
 
@@ -13,10 +13,9 @@ describe("long nested section", () => {
 		}
 	});
 
-	// it should ignore the rule "break-inside: avoid" because the section does not fit on the next page
-	it("should ignore break-inside:avoid when the element (section) does not fit on a page", async () => {
+	it("should ignore comply with break-before:page (precedence over break-inside:avoid)", async () => {
 		let pages = await page.$$eval(".pagedjs_page", (r) => r.length);
-		expect(pages).toBe(2);
+		expect(pages).toBe(3);
 	});
 
 	if (!DEBUG) {
@@ -24,6 +23,7 @@ describe("long nested section", () => {
 			let pdf = await page.pdf(PDF_SETTINGS);
 			expect(pdf).toMatchPDFSnapshot(1);
 			expect(pdf).toMatchPDFSnapshot(2);
+			expect(pdf).toMatchPDFSnapshot(3);
 		});
 	}
 });
