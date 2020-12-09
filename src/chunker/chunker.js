@@ -339,7 +339,7 @@ class Chunker {
 			await this.hooks.afterPageLayout.trigger(page.element, page, breakToken, this);
 			this.emit("renderedPage", page);
 
-			this.recoredCharLength(page.wrapper.textContent.length);
+			this.recoredCharLength(page.area.textContent.length);
 
 			yield breakToken;
 

@@ -55,16 +55,6 @@ class Page {
 		return page;
 	}
 
-	createWrapper() {
-		let wrapper = document.createElement("div");
-
-		this.area.appendChild(wrapper);
-
-		this.wrapper = wrapper;
-
-		return wrapper;
-	}
-
 	index(pgnum) {
 		this.position = pgnum;
 
@@ -125,8 +115,8 @@ class Page {
 
 		this.layoutMethod = new Layout(this.area, this.hooks, maxChars);
 
-		let newBreakToken = await this.layoutMethod.renderTo(this.wrapper, contents, breakToken);
-		
+		let newBreakToken = await this.layoutMethod.renderTo(this.area, contents, breakToken);
+
 		this.addListeners(contents);
 
 		this.endToken = newBreakToken;
@@ -140,7 +130,7 @@ class Page {
 			return this.layout(contents, breakToken);
 		}
 
-		let newBreakToken = await this.layoutMethod.renderTo(this.wrapper, contents, breakToken);
+		let newBreakToken = await this.layoutMethod.renderTo(this.area, contents, breakToken);
 
 		this.endToken = newBreakToken;
 
@@ -167,8 +157,11 @@ class Page {
 
 	clear() {
 		this.removeListeners();
-		this.wrapper && this.wrapper.remove();
-		this.createWrapper();
+		const node = this.area;
+		// clear content
+		while (node.firstChild) {
+			node.firstChild.remove();
+		}
 	}
 
 	addListeners(contents) {
@@ -210,7 +203,7 @@ class Page {
 	}
 
 	addResizeObserver(contents) {
-		let wrapper = this.wrapper;
+		let wrapper = this.area;
 		let prevHeight = wrapper.getBoundingClientRect().height;
 		this.ro = new ResizeObserver(entries => {
 
@@ -240,7 +233,7 @@ class Page {
 			return;
 		}
 
-		let newBreakToken = this.layoutMethod.findBreakToken(this.wrapper, contents, this.startToken);
+		let newBreakToken = this.layoutMethod.findBreakToken(this.area, contents, this.startToken);
 
 		if (newBreakToken) {
 			this.endToken = newBreakToken;
@@ -253,7 +246,7 @@ class Page {
 			return;
 		}
 
-		let endToken = this.layoutMethod.findEndToken(this.wrapper, contents);
+		let endToken = this.layoutMethod.findEndToken(this.area, contents);
 
 		if (endToken) {
 			this._onUnderflow && this._onUnderflow(endToken);
@@ -267,7 +260,6 @@ class Page {
 		this.element.remove();
 
 		this.element = undefined;
-		this.wrapper = undefined;
 	}
 }
 
