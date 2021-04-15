@@ -117,19 +117,36 @@ class Page {
 	}
 	*/
 
-	async layout(contents, breakToken, maxChars) {
+	async layout(contents, breakTokens, maxChars) {
 
 		this.clear();
 
-		this.startToken = breakToken;
+		this.breakTokens = breakTokens;
+
+
+		this.processedTokens = [];
+		this.newBreakTokens = [];
+
+		for (let i = 0; i < breakTokens.length; i++) {
+			let breakToken = breakTokens[i];
+			await this.layoutSingleBreaktoken(contents, breakToken, maxChars);
+			this.processedTokens.push(breakToken);
+		}
+
+		return this.newBreakTokens;
+	}
+
+	async layoutSingleBreaktoken(contents, breakToken, maxChars) {
+		this.currentToken = breakToken;
 
 		this.layoutMethod = new Layout(this.area, this.hooks, maxChars);
 
 		let newBreakToken = await this.layoutMethod.renderTo(this.wrapper, contents, breakToken);
 		
 		this.addListeners(contents);
-
-		this.endToken = newBreakToken;
+		if (newBreakToken) {
+			this.newBreakTokens.push(newBreakToken);
+		}
 
 		return newBreakToken;
 	}
@@ -142,7 +159,9 @@ class Page {
 
 		let newBreakToken = await this.layoutMethod.renderTo(this.wrapper, contents, breakToken);
 
-		this.endToken = newBreakToken;
+		if (newBreakToken) {
+			this.newBreakTokens.push(newBreakToken);
+		}
 
 		return newBreakToken;
 	}
@@ -240,10 +259,10 @@ class Page {
 			return;
 		}
 
-		let newBreakToken = this.layoutMethod.findBreakToken(this.wrapper, contents, this.startToken);
+		let newBreakToken = this.layoutMethod.findBreakToken(this.wrapper, contents, this.currentToken);
 
 		if (newBreakToken) {
-			this.endToken = newBreakToken;
+			this.newBreakTokens.push(newBreakToken);
 			this._onOverflow && this._onOverflow(newBreakToken);
 		}
 	}

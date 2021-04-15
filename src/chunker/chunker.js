@@ -265,6 +265,9 @@ class Chunker {
 		}
 	}
 
+	// I think this handles...special 'break tokens' and not like, generic break tokens being tracked?
+	// Deals with dataset previousbreakAfter and breakBefore, which again...in layout.js, shouldBreak() always returns false
+	// even with multiple pages. So yeah.
 	async handleBreaks(node) {
 		let currentPage = this.total + 1;
 		let currentPosition = currentPage % 2 === 0 ? "left" : "right";
@@ -317,36 +320,72 @@ class Chunker {
 		}
 	}
 
+	// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/function*
+	// * denotes generator function. When next() is called it will run until it hits 'yield' and then pause
+	// The while here will 'wait' until next() is called, which is is by render and renderAsync, with their own
+	// while loops checking for completion states
 	async *layout(content, startAt) {
-		let breakToken = startAt || false;
+		let breakTokens = [];
+		if (startAt) {
+			breakTokens.push(startAt);
+		} else if (this.total === 0) {
+			breakTokens.push(false);
+		}
+		// let breakToken = startAt || false;
 
-		while (breakToken !== undefined && (MAX_PAGES ? this.total < MAX_PAGES : true)) {
+		while (this.total === 0 || 
+				(breakTokens.length !== 0 && (MAX_PAGES ? this.total < MAX_PAGES : true))) {
 
-			if (breakToken && breakToken.node) {
-				await this.handleBreaks(breakToken.node);
-			} else {
-				await this.handleBreaks(content.firstChild);
-			}
+			// Seems...safe to comment out for now. But we'd probably just want to iterate over the breakTokens, as
+			// only 1 could be a 'special' actual break token?
+			// await this.handleBreaks(breakTokens, content);
 
 			let page = this.addPage();
 
-			await this.hooks.beforePageLayout.trigger(page, content, breakToken, this);
+			// await this.hooks.beforePageLayout.trigger(page, content, breakToken, this);
 			this.emit("page", page);
 
 			// Layout content in the page, starting from the breakToken
-			breakToken = await page.layout(content, breakToken, this.maxChars);
+			let newBreakTokens = await page.layout(content, breakTokens, this.maxChars);
+			breakTokens = newBreakTokens;
 
-			await this.hooks.afterPageLayout.trigger(page.element, page, breakToken, this);
+			// await this.hooks.afterPageLayout.trigger(page.element, page, breakToken, this);
 			this.emit("renderedPage", page);
 
 			this.recoredCharLength(page.wrapper.textContent.length);
 
-			yield breakToken;
+			yield newBreakTokens;
 
 			// Stop if we get undefined, showing we have reached the end of the content
 		}
 
+		// let breakToken = startAt || false;
 
+		// while (breakToken !== undefined && (MAX_PAGES ? this.total < MAX_PAGES : true)) {
+
+		// 	if (breakToken && breakToken.node) {
+		// 		await this.handleBreaks(breakToken.node);
+		// 	} else {
+		// 		await this.handleBreaks(content.firstChild);
+		// 	}
+
+		// 	let page = this.addPage();
+
+		// 	await this.hooks.beforePageLayout.trigger(page, content, breakToken, this);
+		// 	this.emit("page", page);
+
+		// 	// Layout content in the page, starting from the breakToken
+		// 	breakToken = await page.layout(content, breakToken, this.maxChars);
+
+		// 	await this.hooks.afterPageLayout.trigger(page.element, page, breakToken, this);
+		// 	this.emit("renderedPage", page);
+
+		// 	this.recoredCharLength(page.wrapper.textContent.length);
+
+		// 	yield breakToken;
+
+		// 	// Stop if we get undefined, showing we have reached the end of the content
+		// }
 	}
 
 	recoredCharLength(length) {
