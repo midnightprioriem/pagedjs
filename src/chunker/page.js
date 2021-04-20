@@ -59,7 +59,6 @@ class Page {
 		let wrapper = document.createElement("div");
 
 		this.area.appendChild(wrapper);
-
 		this.wrapper = wrapper;
 
 		return wrapper;

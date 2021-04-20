@@ -10,6 +10,7 @@ import {
 	isContainer,
 	isElement,
 	isText,
+	isFlexElement,
 	letters,
 	needsBreakBefore,
 	needsPageBreak,
@@ -55,11 +56,19 @@ class Layout {
 
 		this.settings = options || {};
 
-		this.maxChars = this.settings.maxChars || MAX_CHARS_PER_BREAK;
+		this.maxChars = 1000000000000000000000000;
+		// Temporarily comment out...by setting it HUGE then we basically process the whole page for overflows,
+		// as opposed to sending DOM elements with max of 1500 text length for overflow checking
+		// this.maxChars = this.settings.maxChars || MAX_CHARS_PER_BREAK;
 		this.forceRenderBreak = false;
 	}
 
 	async renderTo(wrapper, source, breakToken, bounds = this.bounds) {
+
+		// TODO: This thing...is responsible for looking at a breaktoken and rendering the next page. 
+		// HOWEVER! Lets say breaktoken is col B - it straight up won't go 'backwards' and render A.
+		// So a fix needs to be applied here I guess?
+
 		let start = this.getStart(source, breakToken);
 		let walker = walk(start, source);
 
@@ -127,7 +136,6 @@ class Layout {
 
 			// Should the Node be a shallow or deep clone
 			let shallow = isContainer(node);
-
 			let rendered = this.append(node, wrapper, breakToken, shallow);
 
 			length += rendered.textContent.length;
@@ -158,6 +166,11 @@ class Layout {
 			}
 
 			// Only check x characters
+
+			// ???? Here it is tracking total # of characters for a section, and once those characters are
+			// over 1500 only THEN does it trigger the 'look for overflow' logic?
+			// But like....weird...And causes issue where the stuff it sends to check for overflows is missing, say,
+			// the third column
 			if (length >= this.maxChars) {
 
 				this.hooks && this.hooks.layout.trigger(wrapper, this);
@@ -230,6 +243,8 @@ class Layout {
 	}
 
 	append(node, dest, breakToken, shallow = true, rebuild = true) {
+
+		// TODO: Something here....maybe?
 
 		let clone = cloneNode(node, !shallow);
 
@@ -458,12 +473,15 @@ class Layout {
 
 		let start = Math.round(bounds.left);
 		let end = Math.round(bounds.right);
+
+		let overflowRanges = [];
 		let range;
 
 		let walker = walk(rendered.firstChild, rendered);
 
 		// Find Start
 		let next, done, node, offset, skip, breakAvoid, prev, br;
+		let processingFlex;
 		while (!done) {
 			next = walker.next();
 			done = next.done;
@@ -472,6 +490,17 @@ class Layout {
 			breakAvoid = false;
 			prev = undefined;
 			br = undefined;
+
+			if (this.flexParent && this.flexParent.contains(node)) {
+				// We are going through flexParent children
+				processingFlex = true;
+			} else {
+				// No longer going through flexParent children
+				this.flexParent =  false;
+			}
+			if (isFlexElement(node) && !this.flexParent) {
+				this.flexParent = node;
+			}
 
 			if (node) {
 				let pos = getBoundingClientRect(node);
@@ -516,7 +545,7 @@ class Layout {
 
 				}
 
-				if (!range && isText(node) &&
+				if (isText(node) &&
 					node.textContent.trim().length &&
 					!breakInsideAvoidParentNode(node.parentNode)) {
 
@@ -538,7 +567,13 @@ class Layout {
 						} else {
 							range.setStart(node, offset);
 						}
-						break;
+						overflowRanges.push(range);
+
+						if (processingFlex) {
+							// Do not break if processing flex....I guess...
+						} else {
+							break;
+						}
 					}
 				}
 
@@ -556,8 +591,10 @@ class Layout {
 
 		// Find End
 		if (range) {
+			console.log(overflowRanges);
 			range.setEndAfter(rendered.lastChild);
-			return range;
+			// return range;
+			return overflowRanges[0];
 		}
 
 	}

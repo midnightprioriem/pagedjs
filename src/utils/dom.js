@@ -6,6 +6,11 @@ export function isText(node) {
 	return node && node.nodeType === 3;
 }
 
+export function isFlexElement(node) {
+	// TODO: Geting computed style every time is nor performant
+	return node && node.nodeType === 1 && window.getComputedStyle(node).getPropertyValue("display") === "flex";
+}
+
 export function *walk(start, limiter) {
 	let node = start;
 
