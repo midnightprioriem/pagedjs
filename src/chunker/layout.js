@@ -91,6 +91,10 @@ class Layout {
 			done = next.done;
 
 			if (!node) {
+				// Attempted change:
+				// If there's a breaktoken with a flexparent, after we built up, from the flexparent build
+				// down until we hit the breaktoken?
+
 				this.hooks && this.hooks.layout.trigger(wrapper, this);
 
 				let imgs = wrapper.querySelectorAll("img");
@@ -246,6 +250,12 @@ class Layout {
 
 		// TODO: Something here....maybe?
 
+		// dest = wrapper
+
+		// If we hit the breakToken's parent (do data-id comparison)
+		// then go into small loop where we build DOWNWARDS until we hit the
+		// breaktoken...
+
 		let clone = cloneNode(node, !shallow);
 
 		if (node.parentNode && isElement(node.parentNode)) {
@@ -254,7 +264,9 @@ class Layout {
 			if (parent) {
 				parent.appendChild(clone);
 			} else if (rebuild) {
-				let fragment = rebuildAncestors(node);
+				// scratch that this rebuild ancestors thing is the only thing responsible
+				// for building upwards
+				let fragment = rebuildAncestors(node, breakToken);
 				parent = findElement(node.parentNode, fragment);
 				if (!parent) {
 					dest.appendChild(clone);
@@ -333,7 +345,9 @@ class Layout {
 		return breakNode;
 	}
 
-	createBreakToken(overflow, rendered, source) {
+	createBreakToken(overflowInfo, rendered, source) {
+		let overflow = overflowInfo.range;
+		let flexParent = overflowInfo.flexParent;
 		let container = overflow.startContainer;
 		let offset = overflow.startOffset;
 		let node, renderedNode, parent, index, temp;
@@ -416,13 +430,15 @@ class Layout {
 
 		return new BreakToken(
 			node,
-			offset
+			offset,
+			flexParent
 		);
 
 	}
 
 	findBreakToken(rendered, source, bounds = this.bounds, prevBreakToken, extract = true) {
-		let overflow = this.findOverflow(rendered, bounds);
+		let overflowInfo = this.findOverflow(rendered, bounds);
+		let overflow = overflowInfo.range;
 		let breakToken, breakLetter;
 
 		let overflowHooks = this.hooks.onOverflow.triggerSync(overflow, rendered, bounds, this);
@@ -432,8 +448,8 @@ class Layout {
 			}
 		});
 
-		if (overflow) {
-			breakToken = this.createBreakToken(overflow, rendered, source);
+		if (overflowInfo) {
+			breakToken = this.createBreakToken(overflowInfo, rendered, source,);
 			// breakToken is nullable
 			let breakHooks = this.hooks.onBreakToken.triggerSync(breakToken, overflow, rendered, this);
 			breakHooks.forEach((newToken) => {
@@ -567,7 +583,7 @@ class Layout {
 						} else {
 							range.setStart(node, offset);
 						}
-						overflowRanges.push(range);
+						overflowRanges.push({range, flexParent: this.flexParent});
 
 						if (processingFlex) {
 							// Do not break if processing flex....I guess...

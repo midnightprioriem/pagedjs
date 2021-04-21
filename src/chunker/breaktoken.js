@@ -4,9 +4,10 @@
  */
 class BreakToken {
 
-	constructor(node, offset) {
+	constructor(node, offset, flexParent) {
 		this.node = node;
 		this.offset = offset;
+		this.flexParent = flexParent;
 	}
 
 	equals(otherBreakToken) {

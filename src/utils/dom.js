@@ -138,7 +138,9 @@ export function stackChildren(currentNode, stacked) {
 	return stack;
 }
 
-export function rebuildAncestors(node) {
+export function rebuildAncestors(node, breakToken) {
+	// Bad to include breakTokens here. but clean later I guess
+
 	let parent, ancestor;
 	let ancestors = [];
 	let added = [];
@@ -152,35 +154,63 @@ export function rebuildAncestors(node) {
 		element = element.parentNode;
 	}
 
+	const alreadyProcessed = new Set();
+
 	for (var i = 0; i < ancestors.length; i++) {
 		ancestor = ancestors[i];
-		parent = ancestor.cloneNode(false);
+		if (!alreadyProcessed.has(ancestor.dataset.ref)) {
+			parent = ancestor.cloneNode(false);
 
-		parent.setAttribute("data-split-from", parent.getAttribute("data-ref"));
-		// ancestor.setAttribute("data-split-to", parent.getAttribute("data-ref"));
+			parent.setAttribute("data-split-from", parent.getAttribute("data-ref"));
+			// ancestor.setAttribute("data-split-to", parent.getAttribute("data-ref"));
 
-		if (parent.hasAttribute("id")) {
-			let dataID = parent.getAttribute("id");
-			parent.setAttribute("data-id", dataID);
-			parent.removeAttribute("id");
+			if (parent.hasAttribute("id")) {
+				let dataID = parent.getAttribute("id");
+				parent.setAttribute("data-id", dataID);
+				parent.removeAttribute("id");
+			}
+
+			// This is handled by css :not, but also tidied up here
+			if (parent.hasAttribute("data-break-before")) {
+				parent.removeAttribute("data-break-before");
+			}
+
+			if (parent.hasAttribute("data-previous-break-after")) {
+				parent.removeAttribute("data-previous-break-after");
+			}
+
+			if (added.length) {
+				let container = added[added.length-1];
+				container.appendChild(parent);
+				alreadyProcessed.add(parent.dataset.ref);
+			} else {
+				fragment.appendChild(parent);
+				alreadyProcessed.add(parent.dataset.ref);
+			}
+			added.push(parent);
+
+			// If we hit the breakToken's flex parent (do data-id comparison)
+			// then go into small loop where we build DOWNWARDS until we hit the
+			// breaktoken...
+			if (breakToken && breakToken.flexParent && ancestor.dataset.ref === breakToken.flexParent.dataset.ref) {
+				var treeWalker = document.createTreeWalker(ancestor);
+				let childNode = treeWalker.nextNode();
+				while (childNode !== breakToken.node) {
+					if (!isText(childNode)) {
+						let clone = childNode.cloneNode(false);
+
+						let clonedParentNode = findElement(childNode.parentNode, fragment);
+
+						if (clonedParentNode) {
+							clonedParentNode.appendChild(clone);
+							alreadyProcessed.add(childNode.dataset.ref);
+						}
+						
+					}
+					childNode = treeWalker.nextNode();
+				}
+			}
 		}
-
-		// This is handled by css :not, but also tidied up here
-		if (parent.hasAttribute("data-break-before")) {
-			parent.removeAttribute("data-break-before");
-		}
-
-		if (parent.hasAttribute("data-previous-break-after")) {
-			parent.removeAttribute("data-previous-break-after");
-		}
-
-		if (added.length) {
-			let container = added[added.length-1];
-			container.appendChild(parent);
-		} else {
-			fragment.appendChild(parent);
-		}
-		added.push(parent);
 	}
 
 	added = undefined;
