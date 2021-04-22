@@ -345,9 +345,12 @@ class Chunker {
 			// await this.hooks.beforePageLayout.trigger(page, content, breakToken, this);
 			this.emit("page", page);
 
+			debugger;
 			// Layout content in the page, starting from the breakToken
 			let newBreakTokens = await page.layout(content, breakTokens, this.maxChars);
 			breakTokens = newBreakTokens;
+			debugger;
+			console.log(document.body.innerHTML);
 
 			// await this.hooks.afterPageLayout.trigger(page.element, page, breakToken, this);
 			this.emit("renderedPage", page);

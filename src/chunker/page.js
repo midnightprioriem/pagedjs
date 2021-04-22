@@ -126,29 +126,49 @@ class Page {
 		this.processedTokens = [];
 		this.newBreakTokens = [];
 
-		for (let i = 0; i < breakTokens.length; i++) {
-			let breakToken = breakTokens[i];
-			await this.layoutSingleBreaktoken(contents, breakToken, maxChars);
-			this.processedTokens.push(breakToken);
-		}
+		await this.layoutBreakTokens(contents, breakTokens, maxChars);
+
+		// for (let i = 0; i < breakTokens.length; i++) {
+		// 	debugger;
+		// 	let breakToken = breakTokens[i];
+		// 	await this.layoutSingleBreaktoken(contents, breakTokens, maxChars);
+		// 	this.processedTokens.push(breakToken);
+		// }
 
 		return this.newBreakTokens;
 	}
 
-	async layoutSingleBreaktoken(contents, breakToken, maxChars) {
-		this.currentToken = breakToken;
+	// NEW?
+	async layoutBreakTokens(contents, breakTokens, maxChars) {
+		// this.currentToken = breakToken;
 
 		this.layoutMethod = new Layout(this.area, this.hooks, maxChars);
 
-		let newBreakToken = await this.layoutMethod.renderTo(this.wrapper, contents, breakToken);
+		let newBreakTokens = await this.layoutMethod.renderTo(this.wrapper, contents, breakTokens);
 		
 		this.addListeners(contents);
-		if (newBreakToken) {
-			this.newBreakTokens.push(newBreakToken);
+		if (newBreakTokens && newBreakTokens.length > 0) {
+			this.newBreakTokens = newBreakTokens;
 		}
 
-		return newBreakToken;
+		return newBreakTokens;
 	}
+
+	// // OLD VERSION
+	// async layoutSingleBreaktoken(contents, breakToken, maxChars) {
+	// 	this.currentToken = breakToken;
+
+	// 	this.layoutMethod = new Layout(this.area, this.hooks, maxChars);
+
+	// 	let newBreakTokens = await this.layoutMethod.renderTo(this.wrapper, contents, breakToken);
+		
+	// 	this.addListeners(contents);
+	// 	if (newBreakTokens && newBreakTokens.length > 0) {
+	// 		this.newBreakTokens = newBreakTokens;
+	// 	}
+
+	// 	return newBreakTokens;
+	// }
 
 	async append(contents, breakToken) {
 
@@ -156,13 +176,13 @@ class Page {
 			return this.layout(contents, breakToken);
 		}
 
-		let newBreakToken = await this.layoutMethod.renderTo(this.wrapper, contents, breakToken);
+		let newBreakTokens = await this.layoutMethod.renderTo(this.wrapper, contents, breakToken);
 
-		if (newBreakToken) {
-			this.newBreakTokens.push(newBreakToken);
+		if (newBreakTokens && newBreakTokens.length > 0) {
+			this.newBreakTokens = newBreakTokens;
 		}
 
-		return newBreakToken;
+		return newBreakTokens;
 	}
 
 	getByParent(ref, entries) {
@@ -254,16 +274,22 @@ class Page {
 	}
 
 	checkOverflowAfterResize(contents) {
-		if (!this.listening || !this.layoutMethod) {
-			return;
-		}
 
-		let newBreakToken = this.layoutMethod.findBreakToken(this.wrapper, contents, this.currentToken);
+		// ...Something about this FN is causing the last column of each page to be removed.
+		// ex: we process the first page (renderTo - findOverflow - 3 break tokens, and it renders)
+		// then this gets called on the first page again, but only finds 2 break tokens, and REMOVES
+		// the third column from the rendered first page
 
-		if (newBreakToken) {
-			this.newBreakTokens.push(newBreakToken);
-			this._onOverflow && this._onOverflow(newBreakToken);
-		}
+		// if (!this.listening || !this.layoutMethod) {
+		// 	return;
+		// }
+
+		// let newBreakTokens = this.layoutMethod.findBreakTokens(this.wrapper, contents, this.currentToken);
+
+		// if (newBreakTokens && newBreakTokens.length > 0) {
+		// 	this.newBreakTokens = newBreakTokens;
+		// 	// this._onOverflow && this._onOverflow(newBreakToken);
+		// }
 	}
 
 	checkUnderflowAfterResize(contents) {

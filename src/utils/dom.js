@@ -200,8 +200,9 @@ export function rebuildAncestors(node, breakToken) {
 						let clone = childNode.cloneNode(false);
 
 						let clonedParentNode = findElement(childNode.parentNode, fragment);
+						let clonedChildNode = findElement(childNode, fragment); // Check that...we have not already cloned the node we are appending
 
-						if (clonedParentNode) {
+						if (clonedParentNode && !clonedChildNode) {
 							clonedParentNode.appendChild(clone);
 							alreadyProcessed.add(childNode.dataset.ref);
 						}
@@ -211,6 +212,98 @@ export function rebuildAncestors(node, breakToken) {
 				}
 			}
 		}
+	}
+
+	added = undefined;
+	return fragment;
+}
+
+
+export function rebuildAncestors2(breakTokens) {
+	// Bad to include breakTokens here. but clean later I guess
+
+	let added = [];
+	let fragment = document.createDocumentFragment();
+	const alreadyProcessed = new Set();
+
+	if (!breakTokens) {
+		return fragment;
+	}
+
+	for (let j = 0; j < breakTokens.length; j++) {
+		let parent, ancestor;
+		let ancestors = [];
+
+		let breakToken = breakTokens[j];
+		let node = breakToken.node;
+
+		// Gather all ancestors
+		let element = node;
+		while(element && element.parentNode && element.parentNode.nodeType === 1) {
+			ancestors.unshift(element.parentNode);
+			element = element.parentNode;
+		}
+
+		for (let i = 0; i < ancestors.length; i++) {
+			ancestor = ancestors[i];
+			if (!alreadyProcessed.has(ancestor.dataset.ref)) {
+				parent = ancestor.cloneNode(false);
+
+				parent.setAttribute("data-split-from", parent.getAttribute("data-ref"));
+				// ancestor.setAttribute("data-split-to", parent.getAttribute("data-ref"));
+
+				if (parent.hasAttribute("id")) {
+					let dataID = parent.getAttribute("id");
+					parent.setAttribute("data-id", dataID);
+					parent.removeAttribute("id");
+				}
+
+				// This is handled by css :not, but also tidied up here
+				if (parent.hasAttribute("data-break-before")) {
+					parent.removeAttribute("data-break-before");
+				}
+
+				if (parent.hasAttribute("data-previous-break-after")) {
+					parent.removeAttribute("data-previous-break-after");
+				}
+
+				if (added.length) {
+					let container = findElement(ancestor.parentNode, fragment);
+					// let container = added[added.length-1];
+					container.appendChild(parent);
+					alreadyProcessed.add(parent.dataset.ref);
+				} else {
+					fragment.appendChild(parent);
+					alreadyProcessed.add(parent.dataset.ref);
+				}
+				added.push(parent);
+
+				// If we hit the breakToken's flex parent (do data-id comparison)
+				// then go into small loop where we build DOWNWARDS until we hit the
+				// breaktoken...
+				if (breakToken && breakToken.flexParent && ancestor.dataset.ref === breakToken.flexParent.dataset.ref) {
+					var treeWalker = document.createTreeWalker(ancestor);
+					let childNode = treeWalker.nextNode();
+					while (childNode !== breakToken.node) {
+						// Using data-done-rendering to avoid rerending already done stuff. It gets set in page append
+						if (!isText(childNode) && !childNode.dataset.doneRendering) {
+							let clone = childNode.cloneNode(false);
+
+							let clonedParentNode = findElement(childNode.parentNode, fragment);
+							let clonedChildNode = findElement(childNode, fragment); // Check that...we have not already cloned the node we are appending
+
+							if (clonedParentNode && !clonedChildNode) {
+								clonedParentNode.appendChild(clone);
+								alreadyProcessed.add(childNode.dataset.ref);
+							}
+							
+						}
+						childNode = treeWalker.nextNode();
+					}
+				}
+			}
+		}
+		
 	}
 
 	added = undefined;
@@ -457,8 +550,11 @@ export function cloneNode(n, deep=false) {
 }
 
 export function findElement(node, doc) {
-	const ref = node.getAttribute("data-ref");
-	return findRef(ref, doc);
+	if (node.getAttribute) {
+		const ref = node.getAttribute("data-ref");
+		return findRef(ref, doc);
+	}
+	return null;
 }
 
 export function findRef(ref, doc) {
