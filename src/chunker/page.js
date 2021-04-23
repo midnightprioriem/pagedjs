@@ -117,31 +117,19 @@ class Page {
 	*/
 
 	async layout(contents, breakTokens, maxChars) {
-
 		this.clear();
 
 		this.breakTokens = breakTokens;
-
 
 		this.processedTokens = [];
 		this.newBreakTokens = [];
 
 		await this.layoutBreakTokens(contents, breakTokens, maxChars);
 
-		// for (let i = 0; i < breakTokens.length; i++) {
-		// 	debugger;
-		// 	let breakToken = breakTokens[i];
-		// 	await this.layoutSingleBreaktoken(contents, breakTokens, maxChars);
-		// 	this.processedTokens.push(breakToken);
-		// }
-
 		return this.newBreakTokens;
 	}
 
-	// NEW?
 	async layoutBreakTokens(contents, breakTokens, maxChars) {
-		// this.currentToken = breakToken;
-
 		this.layoutMethod = new Layout(this.area, this.hooks, maxChars);
 
 		let newBreakTokens = await this.layoutMethod.renderTo(this.wrapper, contents, breakTokens);
@@ -150,25 +138,8 @@ class Page {
 		if (newBreakTokens && newBreakTokens.length > 0) {
 			this.newBreakTokens = newBreakTokens;
 		}
-
 		return newBreakTokens;
 	}
-
-	// // OLD VERSION
-	// async layoutSingleBreaktoken(contents, breakToken, maxChars) {
-	// 	this.currentToken = breakToken;
-
-	// 	this.layoutMethod = new Layout(this.area, this.hooks, maxChars);
-
-	// 	let newBreakTokens = await this.layoutMethod.renderTo(this.wrapper, contents, breakToken);
-		
-	// 	this.addListeners(contents);
-	// 	if (newBreakTokens && newBreakTokens.length > 0) {
-	// 		this.newBreakTokens = newBreakTokens;
-	// 	}
-
-	// 	return newBreakTokens;
-	// }
 
 	async append(contents, breakToken) {
 
@@ -274,7 +245,6 @@ class Page {
 	}
 
 	checkOverflowAfterResize(contents) {
-
 		// ...Something about this FN is causing the last column of each page to be removed.
 		// ex: we process the first page (renderTo - findOverflow - 3 break tokens, and it renders)
 		// then this gets called on the first page again, but only finds 2 break tokens, and REMOVES

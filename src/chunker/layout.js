@@ -56,14 +56,49 @@ class Layout {
 
 		this.settings = options || {};
 
+		// Temporarily setting this value to a huge number so we basically process the entire page on every 'staged' page
+		// Otherwise, it will hit 1500 characters (default) and then stop staging content, leading to missing elements
+		// and missed overflow discoveries
 		this.maxChars = 1000000000000000000000000;
-		// Temporarily comment out...by setting it HUGE then we basically process the whole page for overflows,
-		// as opposed to sending DOM elements with max of 1500 text length for overflow checking
 		// this.maxChars = this.settings.maxChars || MAX_CHARS_PER_BREAK;
 		this.forceRenderBreak = false;
 	}
 
 	async renderTo(wrapper, source, breakTokens, bounds = this.bounds) {
+
+		// Summary of how renderTo originally works:
+		// We get a single breaktoken. From that breaktoken, we find all direct ancestors and append them to the 'stage'
+		//		Note: We also use breaktoken information to append a subset of its text content
+		// Then, starting at the breakToken, we walk the DOM until one of these potential break conditions are hit:
+		// 		1 - dataset breakbefore is set (triggers shouldBreak)
+		// 		2 - forceRenderBreak is true (??? don't know why)
+		// 		3 - character length exceeds max
+		// 		4 - the nodewalker finds null because we've walked to the end
+		// Once that is hit, we trigger findBreakToken(), which calls findOverflow(), which starts at the top of the 'staged' content and rewalks the DOM to locate where the page overflows.
+		// findBreakToken() additionally 'cuts off' any content beyond the overflow (in removeOverflow() overflow.extractContents())
+		// 		See: https://developer.mozilla.org/en-US/docs/Web/API/Range/extractContents
+		// Finally, the breakToken is returned, and page creation code is called for a new page
+
+
+		// Summary of the changes made:
+		// We are passed in a list of breaktokens. For each breaktoken, we find all direct ancestors and append them to the 'stage.'
+		//		Note: We also use breaktoken information to append a subset of its text content
+		// Note that we track whether an item already exists on a stage, in the case of breaktokens being related. If a breaktoken
+		// has a flexParent, we additionally locate siblings and append them to the 'stage' as well, ignoring textnodes.
+		// Then, starting at the first breaktoken's node, we walk the DOM until one of these potential break conditions are hit:
+		// 		1 - dataset breakbefore is set (triggers shouldBreak)
+		// 		2 - forceRenderBreak is true (??? don't know why)
+		// 		X/3 - character length exceeds max (TURNED OFF)
+		// 		4 - the nodewalker finds null because we've walked to the end (this is what's happening on my local. This seems terrible for performance for Salesforce)
+		// Once that is hit, we trigger findBreakToken(), which calls findOverflow(), which starts at the top of the 'staged' content and rewalks the DOM to locate where the page overflows.
+		// As we walk, if we encounter a flex element, we track it and if we find a breaktoken while inside of that flex element, we add that information to the breaktoken
+		// as flexParent, which is leveraged later. Additionally, each breaktoken contains a Range object. In the original implementation, rangeEnd is set in such a way to
+		// cut off content beyond the overflow. In these modifications, rangeEnd is only set on the LAST breaktoken, ensuring that we do not cut off any earlier content.
+		// Finally, the breaktokens are returned, and page creation code is called for a new page
+
+		// Special note: For the FIRST Loop
+		// Original implementation - passes 'false' for breaktoken, which makes walkers start walking at the top of the DOM
+		// Changes - passes ['false'], which on the first loop, makes walkers start walking at the top of the DOM
 
 		let start = this.getStart(source, breakTokens[0]);
 		let walker = walk(start, source);
@@ -74,268 +109,127 @@ class Layout {
 		let next;
 
 		let hasRenderedContent = false;
-		// let newBreakToken;
 		let newBreakTokens;
 
 		let length = 0;
 
-		// Uhh is it okay to assign this to the first...
+		// UNSURE if it is okay to assign prevBreakToken to the first break token
 		let prevBreakToken = breakTokens[0] || new BreakToken(start);
 
-		// Summary of what goes on
-		// We get a breaktoken. We rebuild bottom up that breaktoken's ancestors
-		// (ADDED) During rebuilding ancestors, we check the breaktoken's flexparent, and rebuild downward for siblings until we find the breaktoken again
-		// Then a bunch of potential break conditions
-		// 	1 - dataset breakbefore is set (triggers shouldBreak)
-		// 	2 - forceRenderBreak is true (??? don't know why)
-		// 	3 - character length exceeds max (I have turned this off)
-		// 	4 - the nodewalker finds null because we've walked to the end (this is what's happening on my local. This seems terrible for performance for Salesforce)
-		// In every loop, we add a new node - and if that node is a text breaktoken, we cut off the text based on offset
-
-
-		
 		this.rebuildAllAncestorsForBreakTokens(breakTokens, wrapper, start);
 		
 		while (!done && !newBreakTokens) {
-
-			
 			next = walker.next();
 			prevNode = node;
 			node = next.value;
 			done = next.done;
-			let original = isElement(node) ? findElement(node, source) : null;
-			if (!original || (original && (isText(node) || (isElement(original) && !original.dataset.doneRendering)))) {
-			// if (true) {
-			
-				if (!node) {
-					this.hooks && this.hooks.layout.trigger(wrapper, this);
-	
-					let imgs = wrapper.querySelectorAll("img");
-					if (imgs.length) {
-						await this.waitForImages(imgs);
-					}
-	
-					newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
-	
-					for (let i = 0; i < newBreakTokens.length; i++) {
-						let newBreakToken = newBreakTokens[i];
-						if (newBreakToken && newBreakToken.equals(prevBreakToken)) {
-							console.warn("Unable to layout item: ", prevNode);
-							return undefined;
-						}
-					}
-					return newBreakTokens;
+
+			if (!node) {
+				this.hooks && this.hooks.layout.trigger(wrapper, this);
+
+				let imgs = wrapper.querySelectorAll("img");
+				if (imgs.length) {
+					await this.waitForImages(imgs);
 				}
-				this.hooks && this.hooks.layoutNode.trigger(node);
-	
-				// Check if the rendered element has a break set
-				if (hasRenderedContent && this.shouldBreak(node)) {
-					this.hooks && this.hooks.layout.trigger(wrapper, this);
-	
-					let imgs = wrapper.querySelectorAll("img");
-					if (imgs.length) {
-						await this.waitForImages(imgs);
+
+				newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
+
+				for (let i = 0; i < newBreakTokens.length; i++) {
+					let newBreakToken = newBreakTokens[i];
+					if (newBreakToken && newBreakToken.equals(prevBreakToken)) {
+						console.warn("Unable to layout item: ", prevNode);
+						return undefined;
 					}
-	
-					newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
-	
-					if (!newBreakTokens || newBreakTokens.length === 0) {
-						let newBreakToken = this.breakAt(node);
-						newBreakTokens.push(newBreakToken);
+				}
+				return newBreakTokens;
+			}
+			this.hooks && this.hooks.layoutNode.trigger(node);
+
+			// Check if the rendered element has a break set
+			if (hasRenderedContent && this.shouldBreak(node)) {
+				this.hooks && this.hooks.layout.trigger(wrapper, this);
+
+				let imgs = wrapper.querySelectorAll("img");
+				if (imgs.length) {
+					await this.waitForImages(imgs);
+				}
+
+				newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
+
+				if (!newBreakTokens || newBreakTokens.length === 0) {
+					let newBreakToken = this.breakAt(node);
+					newBreakTokens.push(newBreakToken);
+				}
+
+				for (let i = 0; i < newBreakTokens.length; i++) {
+					let newBreakToken = newBreakTokens[i];
+					if (newBreakToken && newBreakToken.equals(prevBreakToken)) {
+						console.warn("Unable to layout item: ", prevNode);
+						return undefined;
 					}
-	
-	
-					for (let i = 0; i < newBreakTokens.length; i++) {
-						let newBreakToken = newBreakTokens[i];
-						if (newBreakToken && newBreakToken.equals(prevBreakToken)) {
-							console.warn("Unable to layout item: ", prevNode);
-							return undefined;
-						}
+				}
+
+				length = 0;
+
+				break;
+			}
+
+			// Should the Node be a shallow or deep clone
+			let shallow = isContainer(node);
+			let rendered = this.append(node, wrapper, breakTokens, shallow);
+
+			length += rendered ? rendered.textContent.length : 0;
+
+			// Check if layout has content yet
+			if (!hasRenderedContent) {
+				hasRenderedContent = hasContent(node);
+			}
+
+			// Skip to the next node if a deep clone was rendered
+			if (!shallow) {
+				walker = walk(nodeAfter(node, source), source);
+			}
+
+			if (this.forceRenderBreak) {
+				this.hooks && this.hooks.layout.trigger(wrapper, this);
+
+				newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
+
+				if (!newBreakTokens || newBreakTokens.length === 0) {
+					let newBreakToken = this.breakAt(node);
+					newBreakTokens.push(newBreakToken);
+				}
+
+				length = 0;
+				this.forceRenderBreak = false;
+
+				break;
+			}
+
+			if (length >= this.maxChars) {
+
+				this.hooks && this.hooks.layout.trigger(wrapper, this);
+
+				let imgs = wrapper.querySelectorAll("img");
+				if (imgs.length) {
+					await this.waitForImages(imgs);
+				}
+
+				newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
+
+				for (let i = 0; i < newBreakTokens.length; i++) {
+					let newBreakToken = newBreakTokens[i];
+					if (newBreakToken && newBreakToken.equals(prevBreakToken)) {
+						console.warn("Unable to layout item: ", prevNode);
+						return undefined;
 					}
-	
+				}
+
+				if (newBreakTokens && newBreakTokens.length > 0) {
 					length = 0;
-	
-					break;
-				}
-	
-				// Should the Node be a shallow or deep clone
-				let shallow = isContainer(node);
-				let rendered = this.append(node, wrapper, breakTokens, shallow);
-	
-				length += rendered ? rendered.textContent.length : 0;
-	
-				// Check if layout has content yet
-				if (!hasRenderedContent) {
-					hasRenderedContent = hasContent(node);
-				}
-	
-				// Skip to the next node if a deep clone was rendered
-				if (!shallow) {
-					walker = walk(nodeAfter(node, source), source);
-				}
-	
-				if (this.forceRenderBreak) {
-					this.hooks && this.hooks.layout.trigger(wrapper, this);
-	
-					newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
-	
-					if (!newBreakTokens || newBreakTokens.length === 0) {
-						let newBreakToken = this.breakAt(node);
-						newBreakTokens.push(newBreakToken);
-					}
-	
-					length = 0;
-					this.forceRenderBreak = false;
-	
-					break;
-				}
-	
-				// Only check x characters
-	
-				// ???? Here it is tracking total # of characters for a section, and once those characters are
-				// over 1500 only THEN does it trigger the 'look for overflow' logic?
-				// But like....weird...And causes issue where the stuff it sends to check for overflows is missing, say,
-				// the third column
-				if (length >= this.maxChars) {
-	
-					this.hooks && this.hooks.layout.trigger(wrapper, this);
-	
-					let imgs = wrapper.querySelectorAll("img");
-					if (imgs.length) {
-						await this.waitForImages(imgs);
-					}
-	
-					newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
-	
-					for (let i = 0; i < newBreakTokens.length; i++) {
-						let newBreakToken = newBreakTokens[i];
-						if (newBreakToken && newBreakToken.equals(prevBreakToken)) {
-							console.warn("Unable to layout item: ", prevNode);
-							return undefined;
-						}
-					}
-	
-					if (newBreakTokens && newBreakTokens.length > 0) {
-						length = 0;
-					}
 				}
 			}
-			
-			// if (!node) {
-			// 	this.hooks && this.hooks.layout.trigger(wrapper, this);
-
-			// 	let imgs = wrapper.querySelectorAll("img");
-			// 	if (imgs.length) {
-			// 		await this.waitForImages(imgs);
-			// 	}
-
-			// 	newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
-
-			// 	for (let i = 0; i < newBreakTokens.length; i++) {
-			// 		let newBreakToken = newBreakTokens[i];
-			// 		if (newBreakToken && newBreakToken.equals(prevBreakToken)) {
-			// 			console.warn("Unable to layout item: ", prevNode);
-			// 			return undefined;
-			// 		}
-			// 	}
-			// 	return newBreakTokens;
-			// }
-			// this.hooks && this.hooks.layoutNode.trigger(node);
-
-			// // Check if the rendered element has a break set
-			// if (hasRenderedContent && this.shouldBreak(node)) {
-			// 	this.hooks && this.hooks.layout.trigger(wrapper, this);
-
-			// 	let imgs = wrapper.querySelectorAll("img");
-			// 	if (imgs.length) {
-			// 		await this.waitForImages(imgs);
-			// 	}
-
-			// 	newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
-
-			// 	if (!newBreakTokens || newBreakTokens.length === 0) {
-			// 		let newBreakToken = this.breakAt(node);
-			// 		newBreakTokens.push(newBreakToken);
-			// 	}
-
-
-			// 	for (let i = 0; i < newBreakTokens.length; i++) {
-			// 		let newBreakToken = newBreakTokens[i];
-			// 		if (newBreakToken && newBreakToken.equals(prevBreakToken)) {
-			// 			console.warn("Unable to layout item: ", prevNode);
-			// 			return undefined;
-			// 		}
-			// 	}
-
-			// 	length = 0;
-
-			// 	break;
-			// }
-
-			// // Should the Node be a shallow or deep clone
-			// let shallow = isContainer(node);
-			// let rendered = this.append(node, wrapper, breakTokens, shallow);
-
-			// length += rendered.textContent.length;
-
-			// // Check if layout has content yet
-			// if (!hasRenderedContent) {
-			// 	hasRenderedContent = hasContent(node);
-			// }
-
-			// // Skip to the next node if a deep clone was rendered
-			// if (!shallow) {
-			// 	walker = walk(nodeAfter(node, source), source);
-			// }
-
-			// if (this.forceRenderBreak) {
-			// 	this.hooks && this.hooks.layout.trigger(wrapper, this);
-
-			// 	newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
-
-			// 	if (!newBreakTokens || newBreakTokens.length === 0) {
-			// 		let newBreakToken = this.breakAt(node);
-			// 		newBreakTokens.push(newBreakToken);
-			// 	}
-
-			// 	length = 0;
-			// 	this.forceRenderBreak = false;
-
-			// 	break;
-			// }
-
-			// // Only check x characters
-
-			// // ???? Here it is tracking total # of characters for a section, and once those characters are
-			// // over 1500 only THEN does it trigger the 'look for overflow' logic?
-			// // But like....weird...And causes issue where the stuff it sends to check for overflows is missing, say,
-			// // the third column
-			// if (length >= this.maxChars) {
-
-			// 	this.hooks && this.hooks.layout.trigger(wrapper, this);
-
-			// 	let imgs = wrapper.querySelectorAll("img");
-			// 	if (imgs.length) {
-			// 		await this.waitForImages(imgs);
-			// 	}
-
-			// 	newBreakTokens = this.findBreakTokens(wrapper, source, bounds, prevBreakToken);
-
-			// 	for (let i = 0; i < newBreakTokens.length; i++) {
-			// 		let newBreakToken = newBreakTokens[i];
-			// 		if (newBreakToken && newBreakToken.equals(prevBreakToken)) {
-			// 			console.warn("Unable to layout item: ", prevNode);
-			// 			return undefined;
-			// 		}
-			// 	}
-
-			// 	if (newBreakTokens && newBreakTokens.length > 0) {
-			// 		length = 0;
-			// 	}
-			// }
-
 		}
-
 		return newBreakTokens;
 	}
 
@@ -385,16 +279,9 @@ class Layout {
 	}
 
 	append(node, dest, breakTokens, shallow = true, rebuild = true) {
-
 		if (breakTokens && !breakTokens[0]) {
-			// dest = wrapper
-
-			// If we hit the breakToken's parent (do data-id comparison)
-			// then go into small loop where we build DOWNWARDS until we hit the
-			// breaktoken...
-
 			let clone = findElement(node, dest);
-			// what if it is already staged
+			// As append works off of elements AFTER breaktokens, none of them should already be staged
 
 			if (!clone) {
 				clone = cloneNode(node, !shallow);
@@ -404,31 +291,9 @@ class Layout {
 					// Rebuild chain
 					if (parent) {
 						parent.appendChild(clone);
-					} else if (rebuild) {
-						// scratch that this rebuild ancestors thing is the only thing responsible
-						// for building upwards
-						// let fragment = rebuildAncestors(node, breakToken);
-						let fragment = rebuildAncestors2(breakTokens);
-		
-						for (let j = 0; j < breakTokens.length; j++) {
-							let breakToken = breakTokens[j];
-							let clonedNode = cloneNode(breakToken.node, !shallow);
-							parent = findElement(breakToken.node.parentNode, fragment);
-							if (!parent) {
-								dest.appendChild(clonedNode);
-							} else if (breakToken && isText(breakToken.node) && breakToken.offset > 0) {
-								clonedNode.textContent = clonedNode.textContent.substring(breakToken.offset);
-								parent.appendChild(clonedNode);
-							} else {
-								parent.appendChild(clonedNode);
-							}
-						}
-						dest.appendChild(fragment);
 					} else {
 						dest.appendChild(clone);
 					}
-		
-		
 				} else {
 					dest.appendChild(clone);
 				}
@@ -441,81 +306,7 @@ class Layout {
 				});
 			}
 			return clone;
-		} 
-		// else if (breakTokens && breakTokens.length > 0) {
-		// 	let fragment = rebuildAncestors2(breakTokens);
-		
-		// 	for (let j = 0; j < breakTokens.length; j++) {
-		// 		let breakToken = breakTokens[j];
-		// 		let clonedNode = cloneNode(breakToken.node, !shallow);
-		// 		let parent = findElement(breakToken.node.parentNode, fragment);
-		// 		if (!parent) {
-		// 			dest.appendChild(clonedNode);
-		// 		} else if (breakToken && isText(breakToken.node) && breakToken.offset > 0) {
-		// 			clonedNode.textContent = clonedNode.textContent.substring(breakToken.offset);
-		// 			parent.appendChild(clonedNode);
-		// 		} else {
-		// 			parent.appendChild(clonedNode);
-		// 		}
-		// 	}
-		// 	dest.appendChild(fragment);
-		// 	return null;
-		// }
-
-		// // dest = wrapper
-
-		// // If we hit the breakToken's parent (do data-id comparison)
-		// // then go into small loop where we build DOWNWARDS until we hit the
-		// // breaktoken...
-
-		// let clone = findElement(node, dest);
-		// // what if it is already staged
-
-		// if (!clone) {
-		// 	clone = cloneNode(node, !shallow);
-	
-		// 	if (node.parentNode && isElement(node.parentNode)) {
-		// 		let parent = findElement(node.parentNode, dest);
-		// 		// Rebuild chain
-		// 		if (parent) {
-		// 			parent.appendChild(clone);
-		// 		} else if (rebuild) {
-		// 			// scratch that this rebuild ancestors thing is the only thing responsible
-		// 			// for building upwards
-		// 			// let fragment = rebuildAncestors(node, breakToken);
-		// 			let fragment = rebuildAncestors2(breakTokens);
-	
-		// 			for (let j = 0; j < breakTokens.length; j++) {
-		// 				let breakToken = breakTokens[j];
-		// 				let clonedNode = cloneNode(breakToken.node, !shallow);
-		// 				parent = findElement(breakToken.node.parentNode, fragment);
-		// 				if (!parent) {
-		// 					dest.appendChild(clonedNode);
-		// 				} else if (breakToken && isText(breakToken.node) && breakToken.offset > 0) {
-		// 					clonedNode.textContent = clonedNode.textContent.substring(breakToken.offset);
-		// 					parent.appendChild(clonedNode);
-		// 				} else {
-		// 					parent.appendChild(clonedNode);
-		// 				}
-		// 			}
-		// 			dest.appendChild(fragment);
-		// 		} else {
-		// 			dest.appendChild(clone);
-		// 		}
-	
-	
-		// 	} else {
-		// 		dest.appendChild(clone);
-		// 	}
-	
-		// 	let nodeHooks = this.hooks.renderNode.triggerSync(clone, node, this);
-		// 	nodeHooks.forEach((newNode) => {
-		// 		if (typeof newNode != "undefined") {
-		// 			clone = newNode;
-		// 		}
-		// 	});
-		// }
-		// return clone;
+		}
 	}
 
 	rebuildAllAncestorsForBreakTokens(breakTokens, dest, node, shallow = true) {
@@ -523,7 +314,7 @@ class Layout {
 			return;
 		}
 		let nodeToUse;
-		if (breakTokens && !breakTokens[0]) {
+		if (breakTokens && !breakTokens[0]) { // First loop breaktoken is false - start at 1st node
 			nodeToUse = node;
 		}
 
@@ -545,6 +336,7 @@ class Layout {
 				parent.appendChild(clonedNode);
 			}
 		}
+		// Append ancestor fragment to wrapper dest
 		dest.appendChild(fragment);
 	}
 
@@ -703,7 +495,6 @@ class Layout {
 	}
 
 	findBreakToken(rendered, source, bounds = this.bounds, prevBreakToken, extract = true, overflowInfo) {
-		// let allOverflowInfos = this.findOverflow(rendered, bounds);
 		let overflow = overflowInfo.range;
 		let breakToken, breakLetter;
 
@@ -765,7 +556,7 @@ class Layout {
 		let next, done, node, offset, skip, breakAvoid, prev, br;
 		let processingFlex;
 		while (!done) {
-			// ....UHHH ISSUE with this walking algorithm. It will step over a text node for <p> but not for h2???
+			// ....UHHH Weird issue with this walking algorithm. It will step over a text node for <p> but not for h2???!!!
 			next = walker.next();
 			done = next.done;
 			node = next.value;
@@ -778,7 +569,7 @@ class Layout {
 				// We are going through flexParent children
 				processingFlex = true;
 			} else {
-				// No longer going through flexParent children
+				// No longer going through flexParent children, pop out
 				this.flexParent =  false;
 			}
 			if (isFlexElement(node) && !this.flexParent) {
@@ -825,7 +616,6 @@ class Layout {
 						range.selectNode(node);
 						break;
 					}
-
 				}
 
 				if (isText(node) &&
@@ -857,7 +647,7 @@ class Layout {
 						overflowRanges.push({range, flexParent: this.flexParent});
 
 						if (processingFlex) {
-							// Do not break if processing flex....I guess...
+							// Do not break if processing flex....I guess...need to revisit for stacking contexts
 						} else {
 							break;
 						}
@@ -883,21 +673,19 @@ class Layout {
 		// Find End
 		if (range) {
 			console.log(overflowRanges);
-			range.setEndAfter(rendered.lastChild);
-			// return range;
+			range.setEndAfter(rendered.lastChild); // Sets range of last breaktoken only
 			return overflowRanges;
-			// return overflowRanges[0];
 		}
 
 	}
 
 	checkDoneRendering(node, source) {
-		// If we are BASIC (no children)
-		// We can set data-is-done-rendering on the original
-		// And then do a check for the container
-		// if we are then we bubble back up
+		// This gets called if the boundaries of the staged node are completely contained in a page
+		// If we process a "BASIC" node (a node with no children), then we set data-done-rendering on the original in the source DOM tree
+		// And when that happens, we step up to double check the parent. If ALL of the parent's children have data-done-rendering set, then
+		// we set the parent as data-done-rendering too, and continue going until we hit null (no parents left) or when not all the children are done rendering
 
-		if (node.childNodes.length === 0 || node.tagName === "H2") { // Terrible hack, actually need to fix the walker to be consistent
+		if (node.childNodes.length === 0) {
 			let original;
 			if (isText(node)) {
 				original = findElement(node.parentElement, source);

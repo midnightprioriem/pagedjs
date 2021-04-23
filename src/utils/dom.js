@@ -7,7 +7,7 @@ export function isText(node) {
 }
 
 export function isFlexElement(node) {
-	// TODO: Geting computed style every time is nor performant
+	// TODO: Geting computed style every time is not performant
 	return node && node.nodeType === 1 && window.getComputedStyle(node).getPropertyValue("display") === "flex";
 }
 
@@ -138,9 +138,7 @@ export function stackChildren(currentNode, stacked) {
 	return stack;
 }
 
-export function rebuildAncestors(node, breakToken) {
-	// Bad to include breakTokens here. but clean later I guess
-
+export function rebuildAncestors(node) {
 	let parent, ancestor;
 	let ancestors = [];
 	let added = [];
@@ -154,74 +152,45 @@ export function rebuildAncestors(node, breakToken) {
 		element = element.parentNode;
 	}
 
-	const alreadyProcessed = new Set();
-
 	for (var i = 0; i < ancestors.length; i++) {
 		ancestor = ancestors[i];
-		if (!alreadyProcessed.has(ancestor.dataset.ref)) {
-			parent = ancestor.cloneNode(false);
+		parent = ancestor.cloneNode(false);
 
-			parent.setAttribute("data-split-from", parent.getAttribute("data-ref"));
-			// ancestor.setAttribute("data-split-to", parent.getAttribute("data-ref"));
+		parent.setAttribute("data-split-from", parent.getAttribute("data-ref"));
+		// ancestor.setAttribute("data-split-to", parent.getAttribute("data-ref"));
 
-			if (parent.hasAttribute("id")) {
-				let dataID = parent.getAttribute("id");
-				parent.setAttribute("data-id", dataID);
-				parent.removeAttribute("id");
-			}
-
-			// This is handled by css :not, but also tidied up here
-			if (parent.hasAttribute("data-break-before")) {
-				parent.removeAttribute("data-break-before");
-			}
-
-			if (parent.hasAttribute("data-previous-break-after")) {
-				parent.removeAttribute("data-previous-break-after");
-			}
-
-			if (added.length) {
-				let container = added[added.length-1];
-				container.appendChild(parent);
-				alreadyProcessed.add(parent.dataset.ref);
-			} else {
-				fragment.appendChild(parent);
-				alreadyProcessed.add(parent.dataset.ref);
-			}
-			added.push(parent);
-
-			// If we hit the breakToken's flex parent (do data-id comparison)
-			// then go into small loop where we build DOWNWARDS until we hit the
-			// breaktoken...
-			if (breakToken && breakToken.flexParent && ancestor.dataset.ref === breakToken.flexParent.dataset.ref) {
-				var treeWalker = document.createTreeWalker(ancestor);
-				let childNode = treeWalker.nextNode();
-				while (childNode !== breakToken.node) {
-					if (!isText(childNode)) {
-						let clone = childNode.cloneNode(false);
-
-						let clonedParentNode = findElement(childNode.parentNode, fragment);
-						let clonedChildNode = findElement(childNode, fragment); // Check that...we have not already cloned the node we are appending
-
-						if (clonedParentNode && !clonedChildNode) {
-							clonedParentNode.appendChild(clone);
-							alreadyProcessed.add(childNode.dataset.ref);
-						}
-						
-					}
-					childNode = treeWalker.nextNode();
-				}
-			}
+		if (parent.hasAttribute("id")) {
+			let dataID = parent.getAttribute("id");
+			parent.setAttribute("data-id", dataID);
+			parent.removeAttribute("id");
 		}
+
+		// This is handled by css :not, but also tidied up here
+		if (parent.hasAttribute("data-break-before")) {
+			parent.removeAttribute("data-break-before");
+		}
+
+		if (parent.hasAttribute("data-previous-break-after")) {
+			parent.removeAttribute("data-previous-break-after");
+		}
+
+		if (added.length) {
+			let container = added[added.length-1];
+			container.appendChild(parent);
+		} else {
+			fragment.appendChild(parent);
+		}
+		added.push(parent);
 	}
 
 	added = undefined;
 	return fragment;
 }
 
-
+// Original works with a single node and rebuilds only its direct ancestors upwards
+// This version iterates over multiple nodes (breakTokens) and rebuilds all siblings, skipping over text nodes
+// A potential version: Based on breakToken type, call a different rebuildAncestors function
 export function rebuildAncestors2(breakTokens) {
-	// Bad to include breakTokens here. but clean later I guess
-
 	let added = [];
 	let fragment = document.createDocumentFragment();
 	const alreadyProcessed = new Set();
@@ -269,7 +238,6 @@ export function rebuildAncestors2(breakTokens) {
 
 				if (added.length) {
 					let container = findElement(ancestor.parentNode, fragment);
-					// let container = added[added.length-1];
 					container.appendChild(parent);
 					alreadyProcessed.add(parent.dataset.ref);
 				} else {
@@ -278,19 +246,27 @@ export function rebuildAncestors2(breakTokens) {
 				}
 				added.push(parent);
 
-				// If we hit the breakToken's flex parent (do data-id comparison)
-				// then go into small loop where we build DOWNWARDS until we hit the
-				// breaktoken...
+				// Outer loops through ancestors from source, building UPWARD until we hit the top of the DOM tree
+				// If the breakToken is flex, we have reference to the (staged) parent where flex begins
+				// As we loop through ancestors from source, we check - is this ancestor the flexParent?
+				// If it is, we momentarily build DOWNWARD from ancestor, building ALL siblings (barring textNodes)
+				// until we hit the breakToken again
 				if (breakToken && breakToken.flexParent && ancestor.dataset.ref === breakToken.flexParent.dataset.ref) {
 					var treeWalker = document.createTreeWalker(ancestor);
 					let childNode = treeWalker.nextNode();
+					
 					while (childNode !== breakToken.node) {
-						// Using data-done-rendering to avoid rerending already done stuff. It gets set in page append
-						if (!isText(childNode) && !childNode.dataset.doneRendering) {
+						// Can potentially use data-done-rendering to avoid rerendering content that is 'already done'. data-done-rendering gets set in page append
+						// Currently not using it as we render 'done' things anyway (like a col div), but the information may be used in the future
+						// let doneRendering = (childNode && childNode.dataset) ? childNode.dataset.doneRendering === "true" : false;
+						
+						if (!isText(childNode)) {
 							let clone = childNode.cloneNode(false);
 
+							 // Locate the parent of the node so we don't accidentally append to the wrong element
 							let clonedParentNode = findElement(childNode.parentNode, fragment);
-							let clonedChildNode = findElement(childNode, fragment); // Check that...we have not already cloned the node we are appending
+							// Check that we have not already cloned the node we are appending
+							let clonedChildNode = findElement(childNode, fragment);
 
 							if (clonedParentNode && !clonedChildNode) {
 								clonedParentNode.appendChild(clone);
