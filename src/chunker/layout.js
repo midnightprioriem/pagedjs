@@ -597,7 +597,6 @@ class Layout {
 				// If overflowRanges have been located but this.flexParent is still 'on,' we will continue to search until this.flexparent disappears
 				// Once something goes off the screen, we will track that in a boolean and use it in conjucntion w/ coordinates to determine if additional
 				// content is off screen
-
 				if (!this.flexParent && hasFoundOverflow && left >= end) {
 					break;
 				}

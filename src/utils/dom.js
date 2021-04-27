@@ -274,8 +274,9 @@ function rebuildAncestorsForFlexIfAncestorIsFlexParent(breakToken, ancestor, fra
 			// Can potentially use data-done-rendering to avoid rerendering content that is 'already done'. data-done-rendering gets set in page append
 			// Currently not using it as we render 'done' things anyway (like a col div), but the information may be used in the future
 			// let doneRendering = (childNode && childNode.dataset) ? childNode.dataset.doneRendering === "true" : false;
-			
-			if (!isText(childNode)) {
+			// Note that, at this moment, the fragment does not reflect CSS styles, probably because it is under a #document-fragment that is not connected yet
+
+			if (!isText(childNode) && isContainer(childNode)) {
 				let clone = childNode.cloneNode(false);
 
 				// Locate the parent of the node so we don't accidentally append to the wrong element
