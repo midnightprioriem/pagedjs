@@ -334,7 +334,6 @@ class Chunker {
 
 		while (this.total === 0 || 
 				(breakTokens.length !== 0 && (MAX_PAGES ? this.total < MAX_PAGES : true))) {
-
 			// Safe to comment out for now. However, we'd likely need to give these special breakTokens
 			// a type, and handleBreaks would look for that special type and only when it finds it, does
 			// logic for page insertion
@@ -358,6 +357,11 @@ class Chunker {
 			this.recoredCharLength(page.wrapper.textContent.length);
 
 			yield newBreakTokens;
+
+			// Comment in to limit generation to 1 page
+			// if (this.total === 1) { 
+			// 	break;
+			// }
 
 			// Stop if we get undefined, showing we have reached the end of the content
 		}

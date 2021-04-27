@@ -279,34 +279,42 @@ class Layout {
 	}
 
 	append(node, dest, breakTokens, shallow = true, rebuild = true) {
-		if (breakTokens && !breakTokens[0]) {
-			let clone = findElement(node, dest);
-			// As append works off of elements AFTER breaktokens, none of them should already be staged
+		for (let i = 0; i < breakTokens.length; i++) {
+			if (breakTokens[i].node === node) {
+				return;
+			}
+		}
+		if (node && node.dataset && node.dataset.doneRendering === "true") {
+			return;
+		}
+		// if (breakTokens && !breakTokens[0]) {
+		let clone = findElement(node, dest);
+		// As append works off of elements AFTER breaktokens, none of them should already be staged
 
-			if (!clone) {
-				clone = cloneNode(node, !shallow);
-		
-				if (node.parentNode && isElement(node.parentNode)) {
-					let parent = findElement(node.parentNode, dest);
-					// Rebuild chain
-					if (parent) {
-						parent.appendChild(clone);
-					} else {
-						dest.appendChild(clone);
-					}
+		if (!clone) {
+			clone = cloneNode(node, !shallow);
+	
+			if (node.parentNode && isElement(node.parentNode)) {
+				let parent = findElement(node.parentNode, dest);
+				// Rebuild chain
+				if (parent) {
+					parent.appendChild(clone);
 				} else {
 					dest.appendChild(clone);
 				}
-		
-				let nodeHooks = this.hooks.renderNode.triggerSync(clone, node, this);
-				nodeHooks.forEach((newNode) => {
-					if (typeof newNode != "undefined") {
-						clone = newNode;
-					}
-				});
+			} else {
+				dest.appendChild(clone);
 			}
-			return clone;
+	
+			let nodeHooks = this.hooks.renderNode.triggerSync(clone, node, this);
+			nodeHooks.forEach((newNode) => {
+				if (typeof newNode != "undefined") {
+					clone = newNode;
+				}
+			});
 		}
+		return clone;
+		// }
 	}
 
 	rebuildAllAncestorsForBreakTokens(breakTokens, dest, node, shallow = true) {
@@ -391,6 +399,9 @@ class Layout {
 	createBreakToken(overflowInfo, rendered, source) {
 		let overflow = overflowInfo.range;
 		let flexParent = overflowInfo.flexParent;
+		if (!overflow) {
+			return;
+		}
 		let container = overflow.startContainer;
 		let offset = overflow.startOffset;
 		let node, renderedNode, parent, index, temp;
@@ -555,6 +566,7 @@ class Layout {
 		// Find Start
 		let next, done, node, offset, skip, breakAvoid, prev, br;
 		let processingFlex;
+		let hasFoundOverflow = false;
 		while (!done) {
 			// ....UHHH Weird issue with this walking algorithm. It will step over a text node for <p> but not for h2???!!!
 			next = walker.next();
@@ -580,6 +592,18 @@ class Layout {
 				let pos = getBoundingClientRect(node);
 				let left = Math.round(pos.left);
 				let right = Math.floor(pos.right);
+
+				// Because paged elements use display:grid and have columns set, using top/bottom of a node's coordinates will not
+				// let you know if something is off the page. This is why the only check is left, as overflowed content goes to an 'invisible' column
+				// to the right of the staged nodes.
+				// If something is off the screen but no overflowRanges have been located, continue to search.
+				// If overflowRanges have been located but this.flexParent is still 'on,' we will continue to search until this.flexparent disappears
+				// Once something goes off the screen, we will track that in a boolean and use it in conjucntion w/ coordinates to determine if additional
+				// content is off screen
+
+				if (!this.flexParent && hasFoundOverflow && left >= end) {
+					break;
+				}
 
 				if (!range && left >= end) {
 					// Check if it is a float
@@ -645,6 +669,15 @@ class Layout {
 							range.setStart(node, offset);
 						}
 						overflowRanges.push({range, flexParent: this.flexParent});
+						hasFoundOverflow = true;
+						// https://developer.mozilla.org/en-US/docs/Web/API/Range/startOffset
+						// If the startContainer is a Node of type Text, Comment, or CDATASection, then the offset is the 
+						// number of characters from the start of the startContainer to the boundary point of the Range. 
+						// For other Node types, the startOffset is the number of child nodes between the start of the startContainer 
+						// and the boundary point of the Range.
+
+						// However, there is also a special 'wordWalker()' function used in Paged that goes letter by letter
+						// to locate the range's exact offset (offset = this.textBreak)
 
 						if (processingFlex) {
 							// Do not break if processing flex....I guess...need to revisit for stacking contexts
@@ -658,14 +691,13 @@ class Layout {
 					this.checkDoneRendering(node, source);
 				}
 
-				// Skip children
-				if (skip || right <= end) {
-					next = nodeAfter(node, rendered);
-					if (next) {
-						walker = walk(next, rendered);
-					}
-
-				}
+				// // Skip children
+				// if (skip || right <= end) {
+				// 	next = nodeAfter(node, rendered);
+				// 	if (next) {
+				// 		walker = walk(next, rendered);
+				// 	}
+				// }
 
 			}
 		}
@@ -676,6 +708,22 @@ class Layout {
 			range.setEndAfter(rendered.lastChild); // Sets range of last breaktoken only
 			return overflowRanges;
 		}
+
+	}
+
+	isNodeOffBottomRightCorner(node, pageBounds) {
+		// A new instance of a LAYOUT class is created, per page. Each layout is initialized with the new page's element (pagedjs_page_content)
+		// and bounds are calculated it with this.element.getBoundingClientRect();
+		// When nodes are calculated for overflow in findOverflow, it will first try getBoundingClientRect(). But that doesn't exist on a textnode
+		// and it will instead create a range around it and then call getBoundingClientRect() on the textnode
+		const nodeBounds = getBoundingClientRect(node);
+
+		const nodeRightCorner_x = nodeBounds.x + nodeBounds.width;
+		const nodeRightCorner_y = nodeBounds.y + nodeBounds.height;
+		const pageRightCorner_x = pageBounds.x + pageBounds.width;
+		const pageRightCorner_y = pageBounds.y + pageBounds.height;
+
+		return nodeRightCorner_x > pageRightCorner_x && nodeRightCorner_y > pageRightCorner_y;
 
 	}
 
@@ -692,18 +740,20 @@ class Layout {
 			} else {
 				original = findElement(node, source);
 			}
-			original.dataset.doneRendering = true;
+			if (original) {
+				original.dataset.doneRendering = true;
 
-			let originalParent = original.parentElement;
+				let originalParent = original.parentElement;
 
-			while (originalParent && !originalParent.dataset.doneRendering) {
-				let numDoneRendering = originalParent.querySelectorAll("[data-done-rendering]").length;
-				let isParentDoneRendering = originalParent.childElementCount === numDoneRendering;
-				originalParent.dataset.doneRendering = isParentDoneRendering;
+				while (originalParent && !originalParent.dataset.doneRendering) {
+					let numDoneRendering = originalParent.querySelectorAll("[data-done-rendering]").length;
+					let isParentDoneRendering = originalParent.childElementCount === numDoneRendering;
+					originalParent.dataset.doneRendering = isParentDoneRendering;
 
-				originalParent = originalParent.parentElement;
-				if (!isParentDoneRendering) {
-					break;
+					originalParent = originalParent.parentElement;
+					if (!isParentDoneRendering) {
+						break;
+					}
 				}
 			}
 		}
