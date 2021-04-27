@@ -1,3 +1,5 @@
+import * as PagedConstants from "../chunker/constants";
+
 export function isElement(node) {
 	return node && node.nodeType === 1;
 }
@@ -7,7 +9,6 @@ export function isText(node) {
 }
 
 export function isFlexElement(node) {
-	// TODO: Geting computed style every time is not performant
 	return node && node.nodeType === 1 && window.getComputedStyle(node).getPropertyValue("display") === "flex";
 }
 
@@ -191,52 +192,26 @@ export function rebuildAncestors(node) {
 // This version iterates over multiple nodes (breakTokens) and rebuilds all siblings, skipping over text nodes
 // A potential version: Based on breakToken type, call a different rebuildAncestors function
 export function rebuildAncestors2(breakTokens) {
-	let added = [];
-	let fragment = document.createDocumentFragment();
-	const alreadyProcessed = new Set();
-
 	if (!breakTokens) {
 		return fragment;
 	}
 
+	let fragment = document.createDocumentFragment();
+	let alreadyProcessed = new Set();
+
 	for (let j = 0; j < breakTokens.length; j++) {
 		let parent, ancestor;
-		let ancestors = [];
-
 		let breakToken = breakTokens[j];
 		let node = breakToken.node;
-
-		// Gather all ancestors
-		let element = node;
-		while(element && element.parentNode && element.parentNode.nodeType === 1) {
-			ancestors.unshift(element.parentNode);
-			element = element.parentNode;
-		}
+		let ancestors = getAllAncestors(node);
 
 		for (let i = 0; i < ancestors.length; i++) {
 			ancestor = ancestors[i];
 			if (!alreadyProcessed.has(ancestor.dataset.ref)) {
 				parent = ancestor.cloneNode(false);
+				setDataPropertiesOnParentBasedOnId(parent);
 
-				parent.setAttribute("data-split-from", parent.getAttribute("data-ref"));
-				// ancestor.setAttribute("data-split-to", parent.getAttribute("data-ref"));
-
-				if (parent.hasAttribute("id")) {
-					let dataID = parent.getAttribute("id");
-					parent.setAttribute("data-id", dataID);
-					parent.removeAttribute("id");
-				}
-
-				// This is handled by css :not, but also tidied up here
-				if (parent.hasAttribute("data-break-before")) {
-					parent.removeAttribute("data-break-before");
-				}
-
-				if (parent.hasAttribute("data-previous-break-after")) {
-					parent.removeAttribute("data-previous-break-after");
-				}
-
-				if (added.length) {
+				if (alreadyProcessed.size > 0) {
 					let container = findElement(ancestor.parentNode, fragment);
 					container.appendChild(parent);
 					alreadyProcessed.add(parent.dataset.ref);
@@ -244,46 +219,80 @@ export function rebuildAncestors2(breakTokens) {
 					fragment.appendChild(parent);
 					alreadyProcessed.add(parent.dataset.ref);
 				}
-				added.push(parent);
-
-				// Outer loops through ancestors from source, building UPWARD until we hit the top of the DOM tree
-				// If the breakToken is flex, we have reference to the (staged) parent where flex begins
-				// As we loop through ancestors from source, we check - is this ancestor the flexParent?
-				// If it is, we momentarily build DOWNWARD from ancestor, building ALL siblings (barring textNodes)
-				// until we hit the breakToken again
-				if (breakToken && breakToken.flexParent && ancestor.dataset.ref === breakToken.flexParent.dataset.ref) {
-					var treeWalker = document.createTreeWalker(ancestor);
-					let childNode = treeWalker.nextNode();
-					
-					while (childNode !== breakToken.node) {
-						// Can potentially use data-done-rendering to avoid rerendering content that is 'already done'. data-done-rendering gets set in page append
-						// Currently not using it as we render 'done' things anyway (like a col div), but the information may be used in the future
-						// let doneRendering = (childNode && childNode.dataset) ? childNode.dataset.doneRendering === "true" : false;
-						
-						if (!isText(childNode)) {
-							let clone = childNode.cloneNode(false);
-
-							 // Locate the parent of the node so we don't accidentally append to the wrong element
-							let clonedParentNode = findElement(childNode.parentNode, fragment);
-							// Check that we have not already cloned the node we are appending
-							let clonedChildNode = findElement(childNode, fragment);
-
-							if (clonedParentNode && !clonedChildNode) {
-								clonedParentNode.appendChild(clone);
-								alreadyProcessed.add(childNode.dataset.ref);
-							}
-							
-						}
-						childNode = treeWalker.nextNode();
-					}
-				}
+				const addedNodes = rebuildAncestorsForFlexIfAncestorIsFlexParent(breakToken, ancestor, fragment);
+				alreadyProcessed = new Set([...alreadyProcessed, ...addedNodes]);
 			}
 		}
 		
 	}
-
-	added = undefined;
 	return fragment;
+}
+
+function setDataPropertiesOnParentBasedOnId(parent) {
+	parent.setAttribute("data-split-from", parent.getAttribute("data-ref"));
+	// ancestor.setAttribute("data-split-to", parent.getAttribute("data-ref"));
+
+	if (parent.hasAttribute("id")) {
+		let dataID = parent.getAttribute("id");
+		parent.setAttribute("data-id", dataID);
+		parent.removeAttribute("id");
+	}
+
+	// This is handled by css :not, but also tidied up here
+	if (parent.hasAttribute("data-break-before")) {
+		parent.removeAttribute("data-break-before");
+	}
+
+	if (parent.hasAttribute("data-previous-break-after")) {
+		parent.removeAttribute("data-previous-break-after");
+	}
+}
+
+// Returns ancestors in top down order
+// eg: For node C, A -> B -> C, returns [A, B]
+function getAllAncestors(node) {
+	let element = node;
+	let ancestors = [];
+	while (element && element.parentNode && element.parentNode.nodeType === 1) {
+		ancestors.unshift(element.parentNode);
+		element = element.parentNode;
+	}
+	return ancestors;
+}
+
+// If the breakToken is flex, we have reference to the (staged) parent where flex begins
+// If the passed in ancestor (node) is also the flex parent, then we build DOWNWARD,
+// building ALL siblings (barring textNodes) until we hit the breakToken again
+// We return nodes ids that we have appended to the fragment
+function rebuildAncestorsForFlexIfAncestorIsFlexParent(breakToken, ancestor, fragment) {
+	const alreadyProcessed = new Set();
+	if (breakToken && breakToken.type === PagedConstants.BREAKTOKEN_TYPE_FLEX && breakToken.context.flexParent && ancestor.dataset.ref === breakToken.context.flexParent.dataset.ref) {
+		var treeWalker = document.createTreeWalker(ancestor);
+		let childNode = treeWalker.nextNode();
+		
+		while (childNode !== breakToken.node) {
+			// Can potentially use data-done-rendering to avoid rerendering content that is 'already done'. data-done-rendering gets set in page append
+			// Currently not using it as we render 'done' things anyway (like a col div), but the information may be used in the future
+			// let doneRendering = (childNode && childNode.dataset) ? childNode.dataset.doneRendering === "true" : false;
+			
+			if (!isText(childNode)) {
+				let clone = childNode.cloneNode(false);
+
+				// Locate the parent of the node so we don't accidentally append to the wrong element
+				let clonedParentNode = findElement(childNode.parentNode, fragment);
+				// Check that we have not already cloned the node we are appending
+				let clonedChildNode = findElement(childNode, fragment);
+
+				if (clonedParentNode && !clonedChildNode) {
+					clonedParentNode.appendChild(clone);
+					alreadyProcessed.add(childNode.dataset.ref);
+				}
+				
+			}
+			childNode = treeWalker.nextNode();
+		}
+	}
+	return alreadyProcessed;
 }
 
 /*

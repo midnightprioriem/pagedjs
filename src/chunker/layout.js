@@ -25,6 +25,7 @@ import {
 	walk,
 	words
 } from "../utils/dom";
+import * as PagedConstants from "./constants";
 import BreakToken  from "./breaktoken";
 import EventEmitter from "event-emitter";
 import Hook from "../utils/hook";
@@ -112,8 +113,6 @@ class Layout {
 		let newBreakTokens;
 
 		let length = 0;
-
-		// UNSURE if it is okay to assign prevBreakToken to the first break token
 		let prevBreakToken = breakTokens[0] || new BreakToken(start);
 
 		this.rebuildAllAncestorsForBreakTokens(breakTokens, wrapper, start);
@@ -269,7 +268,7 @@ class Layout {
 		let start;
 		let node = breakToken && breakToken.node;
 
-		if (node) {
+		if (breakToken.getType() !== PagedConstants.BREAKTOKEN_TYPE_START && node) {
 			start = node;
 		} else {
 			start = source.firstChild;
@@ -279,18 +278,20 @@ class Layout {
 	}
 
 	append(node, dest, breakTokens, shallow = true, rebuild = true) {
+		// Do not reappend a breakToken, which has already been handled by rebuildAllAncestorsForBreakTokens
+		// This is necessary as, if the breakToken node is text, then findElement will not locate it
 		for (let i = 0; i < breakTokens.length; i++) {
 			if (breakTokens[i].node === node) {
 				return;
 			}
 		}
+
+		// If the node is marked as done rendering (on a previous page), do not reappend
 		if (node && node.dataset && node.dataset.doneRendering === "true") {
 			return;
 		}
-		// if (breakTokens && !breakTokens[0]) {
-		let clone = findElement(node, dest);
-		// As append works off of elements AFTER breaktokens, none of them should already be staged
 
+		let clone = findElement(node, dest);
 		if (!clone) {
 			clone = cloneNode(node, !shallow);
 	
@@ -314,37 +315,34 @@ class Layout {
 			});
 		}
 		return clone;
-		// }
 	}
 
 	rebuildAllAncestorsForBreakTokens(breakTokens, dest, node, shallow = true) {
 		if (!breakTokens) {
 			return;
 		}
-		let nodeToUse;
-		if (breakTokens && !breakTokens[0]) { // First loop breaktoken is false - start at 1st node
-			nodeToUse = node;
-		}
-
+		// First rebuild ancestors of the tokens
 		let fragment = rebuildAncestors2(breakTokens);
 		
+		// Then attach breaktokens and offset their text
 		for (let j = 0; j < breakTokens.length; j++) {
 			let breakToken = breakTokens[j];
-			if (breakToken && breakToken.node) {
-				nodeToUse = breakToken.node;
+			if (breakToken.getType() === PagedConstants.BREAKTOKEN_TYPE_START) {
+				break;
 			}
-			let clonedNode = cloneNode(nodeToUse, !shallow);
-			let parent = findElement(nodeToUse.parentNode, fragment);
-			if (!parent) {
-				dest.appendChild(clonedNode);
-			} else if (breakToken && isText(nodeToUse) && breakToken.offset > 0) {
-				clonedNode.textContent = clonedNode.textContent.substring(breakToken.offset);
-				parent.appendChild(clonedNode);
-			} else {
-				parent.appendChild(clonedNode);
+			if (breakToken && breakToken.node) {
+				let clonedNode = cloneNode(breakToken.node, !shallow);
+				let parent = findElement(breakToken.node.parentNode, fragment);
+				if (!parent) {
+					dest.appendChild(clonedNode);
+				} else if (breakToken && isText(breakToken.node) && breakToken.offset > 0) {
+					clonedNode.textContent = clonedNode.textContent.substring(breakToken.offset);
+					parent.appendChild(clonedNode);
+				} else {
+					parent.appendChild(clonedNode);
+				}
 			}
 		}
-		// Append ancestor fragment to wrapper dest
 		dest.appendChild(fragment);
 	}
 
@@ -398,7 +396,7 @@ class Layout {
 
 	createBreakToken(overflowInfo, rendered, source) {
 		let overflow = overflowInfo.range;
-		let flexParent = overflowInfo.flexParent;
+		let context = overflowInfo.context;
 		if (!overflow) {
 			return;
 		}
@@ -485,7 +483,7 @@ class Layout {
 		return new BreakToken(
 			node,
 			offset,
-			flexParent
+			context
 		);
 
 	}
@@ -568,7 +566,6 @@ class Layout {
 		let processingFlex;
 		let hasFoundOverflow = false;
 		while (!done) {
-			// ....UHHH Weird issue with this walking algorithm. It will step over a text node for <p> but not for h2???!!!
 			next = walker.next();
 			done = next.done;
 			node = next.value;
@@ -663,13 +660,11 @@ class Layout {
 					if (left >= end) {
 						range = document.createRange();
 						offset = this.textBreak(node, start, end);
-						if (!offset) {
-							range = undefined;
-						} else {
+						if (offset) {
 							range.setStart(node, offset);
+							overflowRanges.push({range, context: { type: PagedConstants.BREAKTOKEN_TYPE_FLEX, flexParent: this.flexParent }});
+							hasFoundOverflow = true;
 						}
-						overflowRanges.push({range, flexParent: this.flexParent});
-						hasFoundOverflow = true;
 						// https://developer.mozilla.org/en-US/docs/Web/API/Range/startOffset
 						// If the startContainer is a Node of type Text, Comment, or CDATASection, then the offset is the 
 						// number of characters from the start of the startContainer to the boundary point of the Range. 
@@ -691,39 +686,27 @@ class Layout {
 					this.checkDoneRendering(node, source);
 				}
 
-				// // Skip children
-				// if (skip || right <= end) {
-				// 	next = nodeAfter(node, rendered);
-				// 	if (next) {
-				// 		walker = walk(next, rendered);
-				// 	}
-				// }
+				// Commented this original 'performance' booster out as it would skip, say, textnode children of H2
+				// and therefore not properly trigger the checkDoneRendering() code
+				/** 
+					// Skip children if the right boundary is still within the staged area
+					if (skip || right <= end) {
+						next = nodeAfter(node, rendered);
+						if (next) {
+							walker = walk(next, rendered);
+						}
+					}
+				*/
 
 			}
 		}
 
 		// Find End
-		if (range) {
+		if (overflowRanges && overflowRanges.length > 0) {
 			console.log(overflowRanges);
 			range.setEndAfter(rendered.lastChild); // Sets range of last breaktoken only
 			return overflowRanges;
 		}
-
-	}
-
-	isNodeOffBottomRightCorner(node, pageBounds) {
-		// A new instance of a LAYOUT class is created, per page. Each layout is initialized with the new page's element (pagedjs_page_content)
-		// and bounds are calculated it with this.element.getBoundingClientRect();
-		// When nodes are calculated for overflow in findOverflow, it will first try getBoundingClientRect(). But that doesn't exist on a textnode
-		// and it will instead create a range around it and then call getBoundingClientRect() on the textnode
-		const nodeBounds = getBoundingClientRect(node);
-
-		const nodeRightCorner_x = nodeBounds.x + nodeBounds.width;
-		const nodeRightCorner_y = nodeBounds.y + nodeBounds.height;
-		const pageRightCorner_x = pageBounds.x + pageBounds.width;
-		const pageRightCorner_y = pageBounds.y + pageBounds.height;
-
-		return nodeRightCorner_x > pageRightCorner_x && nodeRightCorner_y > pageRightCorner_y;
 
 	}
 
@@ -733,6 +716,8 @@ class Layout {
 		// And when that happens, we step up to double check the parent. If ALL of the parent's children have data-done-rendering set, then
 		// we set the parent as data-done-rendering too, and continue going until we hit null (no parents left) or when not all the children are done rendering
 
+		// Note that this does not get called on the last page, so some elements may not have up to date done-rendering properties
+
 		if (node.childNodes.length === 0) {
 			let original;
 			if (isText(node)) {
@@ -740,7 +725,7 @@ class Layout {
 			} else {
 				original = findElement(node, source);
 			}
-			if (original) {
+			if (original && original.dataset.doneRendering !== "true") {
 				original.dataset.doneRendering = true;
 
 				let originalParent = original.parentElement;
@@ -802,6 +787,10 @@ class Layout {
 		return this.breakAt(after);
 	}
 
+	// A new instance of a LAYOUT class is created, per page. Each layout is initialized with the new page's element (pagedjs_page_content)
+	// and bounds are calculated it with this.element.getBoundingClientRect();
+	// When nodes are calculated for overflow in findOverflow, it will first try getBoundingClientRect(). But that doesn't exist on a textnode
+	// and it will instead create a range around it and then call getBoundingClientRect() on the textnode
 	textBreak(node, start, end) {
 		let wordwalker = words(node);
 		let left = 0;

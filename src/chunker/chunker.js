@@ -6,6 +6,8 @@ import Queue from "../utils/queue";
 import {
 	requestIdleCallback
 } from "../utils/utils";
+import BreakToken from "./breaktoken";
+import * as PagedConstants from "./constants";
 
 const MAX_PAGES = false;
 const MAX_LAYOUTS = false;
@@ -265,7 +267,7 @@ class Chunker {
 		}
 	}
 
-	// I think this handles special 'break tokens' and not like, generic break tokens being tracked
+	// This handles special 'break tokens' and not like, generic break tokens being tracked
 	// Such as dataset previousbreakAfter and breakBefore
 	// As evidence, in layout.js, handleBreaks() always returns false even with multiple pages
 	async handleBreaks(node) {
@@ -329,11 +331,13 @@ class Chunker {
 		if (startAt) {
 			breakTokens.push(startAt);
 		} else if (this.total === 0) {
-			breakTokens.push(false);
+			// First time cycle we create a special type of breaktoken to kick things off
+			breakTokens.push(this.createStartBreaktoken());
 		}
 
 		while (this.total === 0 || 
 				(breakTokens.length !== 0 && (MAX_PAGES ? this.total < MAX_PAGES : true))) {
+			
 			// Safe to comment out for now. However, we'd likely need to give these special breakTokens
 			// a type, and handleBreaks would look for that special type and only when it finds it, does
 			// logic for page insertion
@@ -358,13 +362,12 @@ class Chunker {
 
 			yield newBreakTokens;
 
-			// Comment in to limit generation to 1 page
-			// if (this.total === 1) { 
-			// 	break;
-			// }
-
 			// Stop if we get undefined, showing we have reached the end of the content
 		}
+	}
+
+	createStartBreaktoken() {
+		return new BreakToken(null, null, {type: PagedConstants.BREAKTOKEN_TYPE_START});
 	}
 
 	recoredCharLength(length) {

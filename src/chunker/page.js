@@ -120,8 +120,6 @@ class Page {
 		this.clear();
 
 		this.breakTokens = breakTokens;
-
-		this.processedTokens = [];
 		this.newBreakTokens = [];
 
 		await this.layoutBreakTokens(contents, breakTokens, maxChars);
