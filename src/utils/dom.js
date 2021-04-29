@@ -12,6 +12,18 @@ export function isFlexElement(node) {
 	return node && node.nodeType === 1 && window.getComputedStyle(node).getPropertyValue("display") === "flex";
 }
 
+// DOES NOT WORK because all the child elements contained in the column will have like...flex-basis auto (which means fill a column based on children). 
+// Which is a valid flex style anyway. However, auto will mean the column expands to fit content, so if it has a ton of characters in it, chances are
+// the div now stretches to fill 100% of space, and the next column starts on a 'new row'
+// 0 1 auto will allow side by side content too!!!
+// Right now I've put something pretty shitty in here. But I guess a way to check....??? Using its coordinates? UGH IDK
+
+// If something is flex-basis auto and flex-grow 1, and the width is less than page width, then it's possible somehting might render next to it. However the next thing may get
+// pushed to the next row. what's the chance of that overflowing? Anyway, problem for later.
+export function isFlexColumn(node) {
+	return node && node.nodeType === 1 && window.getComputedStyle(node).getPropertyValue("flex-basis") !== "" && window.getComputedStyle(node).getPropertyValue("flex-shrink") !== "1";
+}
+
 export function *walk(start, limiter) {
 	let node = start;
 
@@ -219,7 +231,7 @@ export function rebuildAncestors2(breakTokens) {
 					fragment.appendChild(parent);
 					alreadyProcessed.add(parent.dataset.ref);
 				}
-				const addedNodes = rebuildAncestorsForFlexIfAncestorIsFlexParent(breakToken, ancestor, fragment);
+				const addedNodes = rebuildAncestorsForFlexIfAncestorIsFlexParent2(breakToken, ancestor, fragment);
 				alreadyProcessed = new Set([...alreadyProcessed, ...addedNodes]);
 			}
 		}
@@ -291,6 +303,28 @@ function rebuildAncestorsForFlexIfAncestorIsFlexParent(breakToken, ancestor, fra
 				
 			}
 			childNode = treeWalker.nextNode();
+		}
+	}
+	return alreadyProcessed;
+}
+
+function rebuildAncestorsForFlexIfAncestorIsFlexParent2(breakToken, ancestor, fragment) {
+	const alreadyProcessed = new Set();
+	if (breakToken && breakToken.type === PagedConstants.BREAKTOKEN_TYPE_FLEX && breakToken.context.flexParent && ancestor.dataset.ref === breakToken.context.flexParent.dataset.ref) {
+
+		for (let i = 0; i < breakToken.context.flexSiblings.length; i++) {
+			let flexSibling = breakToken.context.flexSiblings[i];
+
+			// Locate the parent of the node so we don't accidentally append to the wrong element
+			let clonedParentNode = findElement(flexSibling.parentNode, fragment);
+			// Check that we have not already cloned the node we are appending
+			let clonedChildNode = findElement(flexSibling, fragment);
+			
+			if (clonedParentNode && !clonedChildNode) {
+				let clone = flexSibling.cloneNode(false);
+				clonedParentNode.appendChild(clone);
+				alreadyProcessed.add(flexSibling.dataset.ref);
+			}
 		}
 	}
 	return alreadyProcessed;

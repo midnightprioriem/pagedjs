@@ -11,6 +11,7 @@ import {
 	isElement,
 	isText,
 	isFlexElement,
+	isFlexColumn,
 	letters,
 	needsBreakBefore,
 	needsPageBreak,
@@ -583,6 +584,9 @@ class Layout {
 			}
 			if (isFlexElement(node) && !this.flexParent) {
 				this.flexParent = node;
+				this.flexSiblings = [];
+			} else if (isFlexColumn(node)) {
+				this.flexSiblings.push(node);
 			}
 
 			if (node) {
@@ -661,7 +665,7 @@ class Layout {
 						offset = this.textBreak(node, start, end);
 						if (offset) {
 							range.setStart(node, offset);
-							overflowRanges.push({range, context: { type: PagedConstants.BREAKTOKEN_TYPE_FLEX, flexParent: this.flexParent }});
+							overflowRanges.push({range, context: { type: PagedConstants.BREAKTOKEN_TYPE_FLEX, flexParent: this.flexParent, flexSiblings: this.flexSiblings }});
 							hasFoundOverflow = true;
 						}
 						// https://developer.mozilla.org/en-US/docs/Web/API/Range/startOffset
