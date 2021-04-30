@@ -6,3 +6,4 @@ __diff_output__
 specs/**/*.pdf
 issues
 .vscode
+testFiles

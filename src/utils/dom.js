@@ -12,16 +12,13 @@ export function isFlexElement(node) {
 	return node && node.nodeType === 1 && window.getComputedStyle(node).getPropertyValue("display") === "flex";
 }
 
-// DOES NOT WORK because all the child elements contained in the column will have like...flex-basis auto (which means fill a column based on children). 
-// Which is a valid flex style anyway. However, auto will mean the column expands to fit content, so if it has a ton of characters in it, chances are
-// the div now stretches to fill 100% of space, and the next column starts on a 'new row'
-// 0 1 auto will allow side by side content too!!!
-// Right now I've put something pretty shitty in here. But I guess a way to check....??? Using its coordinates? UGH IDK
-
-// If something is flex-basis auto and flex-grow 1, and the width is less than page width, then it's possible somehting might render next to it. However the next thing may get
-// pushed to the next row. what's the chance of that overflowing? Anyway, problem for later.
+// NOTE: This needs work still
+// Child elements containined in flex will likely have flex: 0 1 auto, which means flex-basis auto (fill a column based on children)
+// In other words, it'll grow to accomodate elements within, and if that makes it 100%+, later flex items are pushed onto another row. And if not, other flex items
+// may be put next to it (depending on following item width too). Either way, for now we just check for flex-shrink 0 (don't shrink), which is a likely property for when
+// flex is used for columns (ex: 0 0 33%)
 export function isFlexColumn(node) {
-	return node && node.nodeType === 1 && window.getComputedStyle(node).getPropertyValue("flex-basis") !== "" && window.getComputedStyle(node).getPropertyValue("flex-shrink") !== "1";
+	return node && node.nodeType === 1 && window.getComputedStyle(node).getPropertyValue("flex-basis") !== "" && window.getComputedStyle(node).getPropertyValue("flex-shrink") === "0";
 }
 
 export function *walk(start, limiter) {
@@ -231,7 +228,7 @@ export function rebuildAncestors2(breakTokens) {
 					fragment.appendChild(parent);
 					alreadyProcessed.add(parent.dataset.ref);
 				}
-				const addedNodes = rebuildAncestorsForFlexIfAncestorIsFlexParent2(breakToken, ancestor, fragment);
+				const addedNodes = rebuildForFlexIfAncestorIsFlexParent(breakToken, ancestor, fragment);
 				alreadyProcessed = new Set([...alreadyProcessed, ...addedNodes]);
 			}
 		}
@@ -272,46 +269,17 @@ function getAllAncestors(node) {
 	return ancestors;
 }
 
-// If the breakToken is flex, we have reference to the (staged) parent where flex begins
-// If the passed in ancestor (node) is also the flex parent, then we build DOWNWARD,
-// building ALL siblings (barring textNodes) until we hit the breakToken again
-// We return nodes ids that we have appended to the fragment
-function rebuildAncestorsForFlexIfAncestorIsFlexParent(breakToken, ancestor, fragment) {
+/**
+ * Meant to be called in progress of rebuilding ancestors to ensure siblings are rebuilt in the right order.
+ * For FLEX breaktokens only.
+ * @param {*} breakToken The breaktoken, containing information on the flexParent (where flex begins) and flexSiblings (siblings that should be rebuilt)
+ * @param {node} ancestor The staged node we are currently on
+ * @param {DocumentFragment} fragment The staged DOM content
+ * @returns {Set} Set of data-refs of nodes that we have added to the fragment
+ */
+function rebuildForFlexIfAncestorIsFlexParent(breakToken, ancestor, fragment) {
 	const alreadyProcessed = new Set();
 	if (breakToken && breakToken.type === PagedConstants.BREAKTOKEN_TYPE_FLEX && breakToken.context.flexParent && ancestor.dataset.ref === breakToken.context.flexParent.dataset.ref) {
-		var treeWalker = document.createTreeWalker(ancestor);
-		let childNode = treeWalker.nextNode();
-		
-		while (childNode !== breakToken.node) {
-			// Can potentially use data-done-rendering to avoid rerendering content that is 'already done'. data-done-rendering gets set in page append
-			// Currently not using it as we render 'done' things anyway (like a col div), but the information may be used in the future
-			// let doneRendering = (childNode && childNode.dataset) ? childNode.dataset.doneRendering === "true" : false;
-			// Note that, at this moment, the fragment does not reflect CSS styles, probably because it is under a #document-fragment that is not connected yet
-
-			if (!isText(childNode) && isContainer(childNode)) {
-				let clone = childNode.cloneNode(false);
-
-				// Locate the parent of the node so we don't accidentally append to the wrong element
-				let clonedParentNode = findElement(childNode.parentNode, fragment);
-				// Check that we have not already cloned the node we are appending
-				let clonedChildNode = findElement(childNode, fragment);
-
-				if (clonedParentNode && !clonedChildNode) {
-					clonedParentNode.appendChild(clone);
-					alreadyProcessed.add(childNode.dataset.ref);
-				}
-				
-			}
-			childNode = treeWalker.nextNode();
-		}
-	}
-	return alreadyProcessed;
-}
-
-function rebuildAncestorsForFlexIfAncestorIsFlexParent2(breakToken, ancestor, fragment) {
-	const alreadyProcessed = new Set();
-	if (breakToken && breakToken.type === PagedConstants.BREAKTOKEN_TYPE_FLEX && breakToken.context.flexParent && ancestor.dataset.ref === breakToken.context.flexParent.dataset.ref) {
-
 		for (let i = 0; i < breakToken.context.flexSiblings.length; i++) {
 			let flexSibling = breakToken.context.flexSiblings[i];
 
@@ -320,6 +288,13 @@ function rebuildAncestorsForFlexIfAncestorIsFlexParent2(breakToken, ancestor, fr
 			// Check that we have not already cloned the node we are appending
 			let clonedChildNode = findElement(flexSibling, fragment);
 			
+			// Rebuild ancestors of the parent node by cloning them and attaching them to the fragment
+			if (!clonedParentNode) {
+				rebuildAncestorsForNode(flexSibling.parentNode, fragment);s
+				clonedParentNode = findElement(flexSibling.parentNode, fragment);
+			}
+			
+			// Clone the flexSibling, attach it to its cloned parent
 			if (clonedParentNode && !clonedChildNode) {
 				let clone = flexSibling.cloneNode(false);
 				clonedParentNode.appendChild(clone);
@@ -328,6 +303,26 @@ function rebuildAncestorsForFlexIfAncestorIsFlexParent2(breakToken, ancestor, fr
 		}
 	}
 	return alreadyProcessed;
+}
+function rebuildAncestorsForNode(startingNode, fragment) {
+	let ancestors = getAllAncestors(startingNode);
+	for (let i = 0; i < ancestors.length; i++) {
+		let ancestor = ancestors[i];
+		let container = findElement(ancestor.parentNode, fragment);
+
+		// Check if the ancestor has already been staged, avoid double cloning
+		let maybeAlreadyClonedEl = findElement(ancestor, fragment);
+		if (container && isElement(container) && !maybeAlreadyClonedEl) {
+			let clonedAncestor = ancestor.cloneNode(false);
+			container.appendChild(clonedAncestor);
+		}
+	}
+	// Append the startingNode to the freshly cloned ancestor chain
+	let container = findElement(startingNode.parentNode, fragment);
+	if (container && isElement(container)) {
+		let cloned = startingNode.cloneNode(false);
+		container.appendChild(cloned);
+	}
 }
 
 /*

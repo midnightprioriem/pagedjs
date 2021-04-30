@@ -581,11 +581,12 @@ class Layout {
 			} else {
 				// No longer going through flexParent children, pop out
 				this.flexParent =  false;
+				processingFlex = false;
 			}
 			if (isFlexElement(node) && !this.flexParent) {
 				this.flexParent = node;
 				this.flexSiblings = [];
-			} else if (isFlexColumn(node)) {
+			} else if (processingFlex && isFlexColumn(node)) {
 				this.flexSiblings.push(node);
 			}
 
@@ -713,31 +714,41 @@ class Layout {
 
 	}
 
+
+	/**
+	 * This gets called if the boundaries of the staged node are completely contained in a page
+	 * If it is a "basic" node (a node with no children, often a textNode), then we set data-done-rendering on the original in the source DOM tree
+	 * And when that happens, we walk up to check its parent. If ALL of the parent's direct children have data-done-rendering set to true, then
+	 * we set the parent as data-done-rendering too, and continue walking up until we hit null (no parents left) or when all the children are NOT done rendering
+	 * 
+	 * Note that this does not get called on the last page, so elements there may not have up to date done-rendering properties
+	 * 
+	 * @param {*} node The staged node that is contained on the page
+	 * @param {*} source The original DOM tree (not the staged stuff)
+	 * @return {undefined}
+	 */
 	checkDoneRendering(node, source) {
-		// This gets called if the boundaries of the staged node are completely contained in a page
-		// If we process a "BASIC" node (a node with no children), then we set data-done-rendering on the original in the source DOM tree
-		// And when that happens, we step up to double check the parent. If ALL of the parent's children have data-done-rendering set, then
-		// we set the parent as data-done-rendering too, and continue going until we hit null (no parents left) or when not all the children are done rendering
-
-		// Note that this does not get called on the last page, so some elements may not have up to date done-rendering properties
-
+		// Check if it is a leaf node
 		if (node.childNodes.length === 0) {
+			// Locate the node's corresponding element in the source DOM tree
 			let original;
-			if (isText(node)) {
+			if (isText(node)) { // Textnodes cannot have data-* properties, so grab its parent instead
 				original = findElement(node.parentElement, source);
 			} else {
 				original = findElement(node, source);
 			}
-			if (original && original.dataset.doneRendering !== "true") {
-				original.dataset.doneRendering = true;
 
+			if (original && original.dataset.doneRendering !== "true") {
+				// Set the node as done rendering, then we will walk up the source DOM tree to check + mark parents
+				original.dataset.doneRendering = true;
 				let originalParent = original.parentElement;
 
-				while (originalParent && !originalParent.dataset.doneRendering) {
-					let numDoneRendering = originalParent.querySelectorAll("[data-done-rendering]").length;
-					let isParentDoneRendering = originalParent.childElementCount === numDoneRendering;
+				while (originalParent && originalParent.dataset.doneRendering !== "true") {
+					// :scope > is used to only query direct children
+					let numDoneRendering = originalParent.querySelectorAll(":scope > [data-done-rendering]").length;
+					let numDirectChildren = originalParent.childNodes ? originalParent.childNodes.length : 0; // Cannot use childElementCount, doesn't work with shadow dom
+					let isParentDoneRendering = numDirectChildren === numDoneRendering;
 					originalParent.dataset.doneRendering = isParentDoneRendering;
-
 					originalParent = originalParent.parentElement;
 					if (!isParentDoneRendering) {
 						break;
