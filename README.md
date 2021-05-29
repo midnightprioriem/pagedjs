@@ -12,6 +12,17 @@ The currently supported properties can be found on [the wiki](https://gitlab.pag
 A quick overview to getting started with Paged Media CSS and Paged.js is available on [pagedmedia.org](https://www.pagedmedia.org/paged-js/).
 
 ## NPM Module
+
+Paged.js requires the Ghostscript development library to be installed:
+
+On Debian based systems:
+
+```sh
+$ sudo apt install libgs-dev
+```
+
+Install dependencies:
+
 ```sh
 $ npm install pagedjs
 ```
@@ -142,6 +153,15 @@ afterOverflowRemoved(removed, rendered)
 ```
 
 ## Setup
+
+Paged.js requires the Ghostscript development library to be installed:
+
+On Debian based systems:
+
+```sh
+$ sudo apt install libgs-dev
+```
+
 Install dependencies
 ```sh
 $ npm install
