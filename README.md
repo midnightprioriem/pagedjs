@@ -13,7 +13,7 @@ A quick overview to getting started with Paged Media CSS and Paged.js is availab
 
 ## NPM Module
 
-Paged.js requires the Ghostscript development library to be installed:
+Paged.js requires the Ghostscript development library to be installed.
 
 On Debian based systems:
 
@@ -154,7 +154,7 @@ afterOverflowRemoved(removed, rendered)
 
 ## Setup
 
-Paged.js requires the Ghostscript development library to be installed:
+Paged.js requires the Ghostscript development library to be installed.
 
 On Debian based systems:
 
