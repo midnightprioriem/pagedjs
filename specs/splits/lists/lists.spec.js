@@ -21,12 +21,12 @@ describe("lists", () => {
 		expect(itemnum).toBe("1");
 	});
 
-	it("should give the first list item on page 2 and number of 7", async () => {
+	it("should give the first list item on page 2 and number of 6", async () => {
 		let itemnum = await page.$eval("[data-page-number='2'] section li:nth-of-type(1)", (r) => {
 			return r.getAttribute("data-item-num");
 		});
 
-		expect(itemnum).toBe("7");
+		expect(itemnum).toBe("6");
 	});
 
 	it("should give the first list item on page 3 no list item style", async () => {

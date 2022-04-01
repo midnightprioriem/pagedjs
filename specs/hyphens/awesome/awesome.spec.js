@@ -13,33 +13,32 @@ describe("css is awesome", () => {
 		}
 	});
 
-	xit("should render 7 pages", async () => {
+	it("should render 4 pages", async () => {
 		let pages = await page.$$eval(".pagedjs_page", (r) => {
 			return r.length;
 		});
 
-		expect(pages).toEqual(7);
+		expect(pages).toEqual(4);
 	});
 
-	xit("page 1 should have a hyphen", async () => {
+	it("page 1 should have a hyphen", async () => {
 		let text = await page.$eval("[data-page-number='1']", (r) => r.textContent);
 
-		expect(text).toContain("\u2010");
+		expect(text).toContain("\u00AD");
 	});
 
-	xit("page 5 should NOT have a hyphen", async () => {
-		let text = await page.$eval("[data-page-number='5']", (r) => r.textContent);
+	it("page 4 should NOT have a hyphen", async () => {
+		let text = await page.$eval("[data-page-number='4']", (r) => r.textContent);
 
 		expect(text).not.toContain("\u2010");
 	});
 
 
 	if (!DEBUG) {
-		xit("should create a pdf", async () => {
+		it("should create a pdf", async () => {
 			let pdf = await page.pdf(PDF_SETTINGS);
 
 			expect(pdf).toMatchPDFSnapshot(1);
-			expect(pdf).toMatchPDFSnapshot(2);
 		});
 	}
 }

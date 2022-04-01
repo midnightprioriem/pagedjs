@@ -18,7 +18,7 @@ describe("bleed", () => {
 		expect(text).toContain("Chapter 1. Loomings.");
 	});
 
-	it("should render 14 pages", async () => {
+	it("should render 7 pages", async () => {
 		let pages = await page.$$eval(".pagedjs_page", (r) => r.length);
 		expect(pages).toBe(7);
 	});
